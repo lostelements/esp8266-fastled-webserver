@@ -16,6 +16,7 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#define FASTLED_ESP8266_RAW_PIN_ORDER
 #include "FastLED.h"
 FASTLED_USING_NAMESPACE
 
@@ -27,15 +28,9 @@ extern "C" {
 #include <ESP8266WebServer.h>
 #include <FS.h>
 #include <EEPROM.h>
-#include <IRremoteESP8266.h>
 #include "GradientPalettes.h"
 
-#define RECV_PIN 12
-IRrecv irReceiver(RECV_PIN);
-
-#include "Commands.h"
-
-const bool apMode = false;
+const bool apMode = true;
 
 // AP mode password
 const char WiFiAPPSK[] = "";
@@ -46,12 +41,12 @@ const char* password = "";
 
 ESP8266WebServer server(80);
 
-#define DATA_PIN      D8     // for Huzzah: Pins w/o special function:  #4, #5, #12, #13, #14; // #16 does not work :(
-#define LED_TYPE      WS2812
-#define COLOR_ORDER   GRB
-#define NUM_LEDS      24
+#define DATA_PIN      D5     // for Huzzah: Pins w/o special function:  #4, #5, #12, #13, #14; // #16 does not work :(
+#define LED_TYPE      WS2812B
+#define COLOR_ORDER   RGB
+#define NUM_LEDS      4
 
-#define MILLI_AMPS         2000     // IMPORTANT: set here the max milli-Amps of your power supply 5V 2A = 2000
+#define MILLI_AMPS         1500     // IMPORTANT: set here the max milli-Amps of your power supply 5V 2A = 2000
 #define FRAMES_PER_SECOND  120 // here you can control the speed. With the Access Point / Web Server the animations run a bit slower.
 
 CRGB leds[NUM_LEDS];
@@ -93,7 +88,7 @@ uint8_t currentPaletteIndex = 0;
 
 uint8_t gHue = 0; // rotating "base color" used by many of the patterns
 
-CRGB solidColor = CRGB::Blue;
+CRGB solidColor = CRGB::Black;
 
 uint8_t power = 1;
 
@@ -114,8 +109,6 @@ void setup(void) {
   loadSettings();
 
   FastLED.setBrightness(brightness);
-
-  irReceiver.enableIRIn(); // Start the receiver
 
   Serial.println();
   Serial.print( F("Heap: ") ); Serial.println(system_get_free_heap_size());
@@ -292,6 +285,7 @@ PatternAndNameList patterns = {
   { juggle, "Juggle" },
   { bpm, "BPM" },
   { showSolidColor, "Solid Color" },
+  { jozef, "Jozef's ding" }
 };
 
 const uint8_t patternCount = ARRAY_SIZE(patterns);
@@ -331,8 +325,6 @@ void loop(void) {
   random16_add_entropy(random(65535));
 
   server.handleClient();
-
-  handleIrInput();
 
   if (power == 0) {
     fill_solid(leds, NUM_LEDS, CRGB::Black);
@@ -374,212 +366,6 @@ void loop(void) {
   FastLED.delay(1000 / FRAMES_PER_SECOND);
 }
 
-void handleIrInput()
-{
-  InputCommand command = readCommand(defaultHoldDelay);
-
-  if (command != InputCommand::None) {
-    Serial.print("command: ");
-    Serial.println((int) command);
-  }
-
-  switch (command) {
-    case InputCommand::Up: {
-        adjustPattern(true);
-        break;
-      }
-    case InputCommand::Down: {
-        adjustPattern(false);
-        break;
-      }
-    case InputCommand::Power: {
-        power = power == 0 ? 1 : 0;
-        break;
-      }
-    case InputCommand::BrightnessUp: {
-        adjustBrightness(true);
-        break;
-      }
-    case InputCommand::BrightnessDown: {
-        adjustBrightness(false);
-        break;
-      }
-    case InputCommand::PlayMode: { // toggle pause/play
-        autoplayEnabled = !autoplayEnabled;
-        break;
-      }
-
-    // pattern buttons
-
-    case InputCommand::Pattern1: {
-        setPattern(0);
-        break;
-      }
-    case InputCommand::Pattern2: {
-        setPattern(1);
-        break;
-      }
-    case InputCommand::Pattern3: {
-        setPattern(2);
-        break;
-      }
-    case InputCommand::Pattern4: {
-        setPattern(3);
-        break;
-      }
-    case InputCommand::Pattern5: {
-        setPattern(4);
-        break;
-      }
-    case InputCommand::Pattern6: {
-        setPattern(5);
-        break;
-      }
-    case InputCommand::Pattern7: {
-        setPattern(6);
-        break;
-      }
-    case InputCommand::Pattern8: {
-        setPattern(7);
-        break;
-      }
-    case InputCommand::Pattern9: {
-        setPattern(8);
-        break;
-      }
-    case InputCommand::Pattern10: {
-        setPattern(9);
-        break;
-      }
-    case InputCommand::Pattern11: {
-        setPattern(10);
-        break;
-      }
-    case InputCommand::Pattern12: {
-        setPattern(11);
-        break;
-      }
-
-    // custom color adjustment buttons
-
-    case InputCommand::RedUp: {
-        solidColor.red += 8;
-        setSolidColor(solidColor);
-        break;
-      }
-    case InputCommand::RedDown: {
-        solidColor.red -= 8;
-        setSolidColor(solidColor);
-        break;
-      }
-    case InputCommand::GreenUp: {
-        solidColor.green += 8;
-        setSolidColor(solidColor);
-        break;
-      }
-    case InputCommand::GreenDown: {
-        solidColor.green -= 8;
-        setSolidColor(solidColor);
-        break;
-      }
-    case InputCommand::BlueUp: {
-        solidColor.blue += 8;
-        setSolidColor(solidColor);
-        break;
-      }
-    case InputCommand::BlueDown: {
-        solidColor.blue -= 8;
-        setSolidColor(solidColor);
-        break;
-      }
-
-    // color buttons
-
-    case InputCommand::Red: {
-        setSolidColor(CRGB::Red);
-        break;
-      }
-    case InputCommand::RedOrange: {
-        setSolidColor(CRGB::OrangeRed);
-        break;
-      }
-    case InputCommand::Orange: {
-        setSolidColor(CRGB::Orange);
-        break;
-      }
-    case InputCommand::YellowOrange: {
-        setSolidColor(CRGB::Goldenrod);
-        break;
-      }
-    case InputCommand::Yellow: {
-        setSolidColor(CRGB::Yellow);
-        break;
-      }
-
-    case InputCommand::Green: {
-        setSolidColor(CRGB::Green);
-        break;
-      }
-    case InputCommand::Lime: {
-        setSolidColor(CRGB::Lime);
-        break;
-      }
-    case InputCommand::Aqua: {
-        setSolidColor(CRGB::Aqua);
-        break;
-      }
-    case InputCommand::Teal: {
-        setSolidColor(CRGB::Teal);
-        break;
-      }
-    case InputCommand::Navy: {
-        setSolidColor(CRGB::Navy);
-        break;
-      }
-
-    case InputCommand::Blue: {
-        setSolidColor(CRGB::Blue);
-        break;
-      }
-    case InputCommand::RoyalBlue: {
-        setSolidColor(CRGB::RoyalBlue);
-        break;
-      }
-    case InputCommand::Purple: {
-        setSolidColor(CRGB::Purple);
-        break;
-      }
-    case InputCommand::Indigo: {
-        setSolidColor(CRGB::Indigo);
-        break;
-      }
-    case InputCommand::Magenta: {
-        setSolidColor(CRGB::Magenta);
-        break;
-      }
-
-    case InputCommand::White: {
-        setSolidColor(CRGB::White);
-        break;
-      }
-    case InputCommand::Pink: {
-        setSolidColor(CRGB::Pink);
-        break;
-      }
-    case InputCommand::LightPink: {
-        setSolidColor(CRGB::LightPink);
-        break;
-      }
-    case InputCommand::BabyBlue: {
-        setSolidColor(CRGB::CornflowerBlue);
-        break;
-      }
-    case InputCommand::LightBlue: {
-        setSolidColor(CRGB::LightBlue);
-        break;
-      }
-  }
-}
 
 void loadSettings()
 {
@@ -849,6 +635,31 @@ void sinelon()
   int pos = beatsin16(13, 0, NUM_LEDS - 1);
   //  leds[pos] += CHSV( gHue, 255, 192);
   leds[pos] += ColorFromPalette(palettes[currentPaletteIndex], gHue, 192);
+}
+
+void jozef() {
+  static int led_duration[NUM_LEDS] = {0,0,0,0};
+  static CRGBPalette16 led_hue[NUM_LEDS];
+  static int led_sat[NUM_LEDS];
+
+  static int DURATION = 400;
+  static int FREQ_INV = 400;
+  int a = random(FREQ_INV);
+  if (a < NUM_LEDS && led_duration[a] == 0) {
+    led_duration[a] = random(DURATION - (DURATION / 10), DURATION  + (DURATION / 10));
+    led_sat[a] = gHue;
+    led_hue[a] = palettes[currentPaletteIndex];
+  }
+
+  for(int i = 0; i < NUM_LEDS; i++) {
+    if(led_duration[i]  > 0) {
+      int bri = constrain(led_duration[i] > 255 ? DURATION - led_duration[i] : led_duration[i], 0, brightness);
+      leds[i] = ColorFromPalette(led_hue[i], led_sat[i], bri);
+      if(--led_duration[i] == 0) {
+        leds[i] = CRGB::Black; 
+      }
+    }
+  }
 }
 
 void bpm()
