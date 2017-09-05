@@ -273,3 +273,8 @@
 	width: 24px;
 	height: 24px;
 }
+
+/* MarkO added */
+.btn-group-nobreak {
+   display: flex;
+}

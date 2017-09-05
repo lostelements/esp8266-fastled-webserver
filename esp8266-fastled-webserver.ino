@@ -91,6 +91,8 @@ uint8_t gHue = 0; // rotating "base color" used by many of the patterns
 CRGB solidColor = CRGB::Black;
 
 uint8_t power = 1;
+uint8_t glitter = 0;
+uint8_t big = 0;
 
 void setup(void) {
   Serial.begin(115200);
@@ -143,7 +145,7 @@ void setup(void) {
     String macID = String(mac[WL_MAC_ADDR_LENGTH - 2], HEX) +
                    String(mac[WL_MAC_ADDR_LENGTH - 1], HEX);
     macID.toUpperCase();
-    String AP_NameString = "ESP8266 Thing " + macID;
+    String AP_NameString = "Jozefs Artefact " + macID;
 
     char AP_NameChar[AP_NameString.length() + 1];
     memset(AP_NameChar, 0, AP_NameString.length() + 1);
@@ -184,10 +186,30 @@ void setup(void) {
     sendPower();
   });
 
+  server.on("/glitter", HTTP_GET, []() {
+    sendGlitter();
+  });
+
+  server.on("/big", HTTP_GET, []() {
+    sendBig();
+  });
+  
   server.on("/power", HTTP_POST, []() {
     String value = server.arg("value");
     setPower(value.toInt());
     sendPower();
+  });
+
+  server.on("/glitter", HTTP_POST, []() {
+    String value = server.arg("value");
+    setGlitter(value.toInt());
+    sendGlitter();
+  });
+
+  server.on("/big", HTTP_POST, []() {
+    String value = server.arg("value");
+    setBig(value.toInt());
+    sendBig();
   });
 
   server.on("/solidColor", HTTP_GET, []() {
@@ -333,10 +355,6 @@ void loop(void) {
     return;
   }
 
-  // EVERY_N_SECONDS(10) {
-  //   Serial.print( F("Heap: ") ); Serial.println(system_get_free_heap_size());
-  // }
-
   EVERY_N_MILLISECONDS( 20 ) {
     gHue++;  // slowly cycle the "base color" through the rainbow
   }
@@ -359,6 +377,10 @@ void loop(void) {
 
   // Call the current pattern function once, updating the 'leds' array
   patterns[currentPatternIndex].pattern();
+
+  if(glitter) {
+    addGlitter(3);
+  }
 
   FastLED.show();
 
@@ -401,6 +423,8 @@ void sendAll()
   String json = "{";
 
   json += "\"power\":" + String(power) + ",";
+  json += "\"glitter\":" + String(glitter) + ",";
+  json += "\"big\":" + String(big) + ",";
   json += "\"brightness\":" + String(brightness) + ",";
 
   json += "\"currentPattern\":{";
@@ -448,6 +472,20 @@ void sendPower()
   json = String();
 }
 
+void sendGlitter()
+{
+  String json = String(glitter);
+  server.send(200, "text/json", json);
+  json = String();
+}
+
+void sendBig()
+{
+  String json = String(big);
+  server.send(200, "text/json", json);
+  json = String();
+}
+
 void sendPattern()
 {
   String json = "{";
@@ -489,6 +527,16 @@ void sendSolidColor()
 void setPower(uint8_t value)
 {
   power = value == 0 ? 0 : 1;
+}
+
+void setGlitter(uint8_t value)
+{
+  glitter = value == 0 ? 0 : 1;
+}
+
+void setBig(uint8_t value)
+{
+  big = value == 0 ? 0 : 1;
 }
 
 void setSolidColor(CRGB color)
@@ -655,11 +703,16 @@ void jozef() {
     if(led_duration[i]  > 0) {
       int bri = constrain(led_duration[i] > 255 ? DURATION - led_duration[i] : led_duration[i], 0, brightness);
       leds[i] = ColorFromPalette(led_hue[i], led_sat[i], bri);
-      if(--led_duration[i] == 0) {
+      --led_duration[i];
+    } else {
         leds[i] = CRGB::Black; 
-      }
     }
   }
+ 
+  if(big == 1) {
+    leds[0] = CHSV(0,random(0,50),255);
+  }
+  
 }
 
 void bpm()

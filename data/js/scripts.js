@@ -57,6 +57,22 @@ $("#btnPowerOff").click(function() {
   setPower(0);
 });
 
+$("#btnGlitterOn").click(function() {
+  setGlitter(1);
+});
+
+$("#btnGlitterOff").click(function() {
+  setGlitter(0);
+});
+
+$("#btnBigOn").click(function() {
+    setBig(1);
+});
+
+$("#btnBigOff").click(function() {
+    setBig(0);
+});
+
 $("#inputBrightness").on("change mousemove", function() {
    $("#spanBrightness").html($(this).val());
 });
@@ -107,7 +123,9 @@ function getAll() {
     $("#inputColor").minicolors('value', hexString);
     ignoreColorChange = false;
 
-    updatePowerButtons(data.power);
+      updateButtons(data.power, 'btnPowerOn','btnPowerOff');
+      updateButtons(data.glitter, 'btnGlitterOn','btnGlitterOff');
+      updateButtons(data.big, 'btnBigOn','btnBigOff');
 
     // clear pattern list
     $("#inputPattern").find("option").remove();
@@ -137,21 +155,35 @@ function getAll() {
   });
 }
 
-function updatePowerButtons(value) {
+function updateButtons(value, onId, offId) {
   if(value == 0) {
-    $("#btnPowerOn").attr("class", "btn btn-default");
-    $("#btnPowerOff").attr("class", "btn btn-primary");
+    $("#" + onId).attr("class", "btn btn-default");
+    $("#" + offId).attr("class", "btn btn-primary");
   } else {
-    $("#btnPowerOn").attr("class", "btn btn-primary");
-    $("#btnPowerOff").attr("class", "btn btn-default");
+    $("#" + onId).attr("class", "btn btn-primary");
+    $("#" + offId).attr("class", "btn btn-default");
   }
 }
 
 function setPower(value) {
   $.post(urlBase + "power?value=" + value, function(data) {
-    updatePowerButtons(data);
+    updateButtons(data, "btnPowerOn", "btnPowerOff");
     $("#status").html("Set Power: " + data);
   });
+}
+
+function setGlitter(value) {
+  $.post(urlBase + "glitter?value=" + value, function(data) {
+    updateButtons(data, "btnGlitterOn", "btnGlitterOff");
+    $("#status").html("Set Glitter: " + data);
+  });
+}
+
+function setBig(value) {
+    $.post(urlBase + "big?value=" + value, function(data) {
+        updateButtons(data, "btnBigOn", "btnBigOff");
+        $("#status").html("Set big: " + data);
+    });
 }
 
 function delaySetBrightness() {

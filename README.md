@@ -1,14 +1,12 @@
 FastLED + ESP8266 Web Server
 =========
 
-Control an addressable LED strip with an ESP8266 via a web browser or infrared remote control. Also, I added some custom patterns. 
+Control an addressable LED strip with an ESP8266 via a web browser or infrared remote control. In regards to the original code, I've added some GUI buttons and a new pattern and removed the IR code, so I can use the ESP8266 in a LARP game. 
 
 Hardware
 --------
 
-An ESP8266 development board, such as the [Adafruit HUZZAH ESP8266 Breakout]:
-
-[![Adafruit HUZZAH ESP8266 Breakout](https://cdn-shop.adafruit.com/310x233/2471-10.jpg)](https://www.adafruit.com/products/2471)
+An ESP8266 development board, such as the NodeMCU
 
 Addressable LED strip, such as the [Adafruit NeoPixel Ring]:
 
