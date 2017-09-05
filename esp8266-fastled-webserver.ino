@@ -307,7 +307,8 @@ PatternAndNameList patterns = {
   { juggle, "Juggle" },
   { bpm, "BPM" },
   { showSolidColor, "Solid Color" },
-  { jozef, "Jozef's ding" }
+  { jozef, "Jozef's ding" },
+  { police, "Da Police" },  
 };
 
 const uint8_t patternCount = ARRAY_SIZE(patterns);
@@ -686,7 +687,7 @@ void sinelon()
 }
 
 void jozef() {
-  static int led_duration[NUM_LEDS] = {0,0,0,0};
+  static int led_duration[NUM_LEDS];
   static CRGBPalette16 led_hue[NUM_LEDS];
   static int led_sat[NUM_LEDS];
 
@@ -828,6 +829,45 @@ void colorwaves()
 
     nblend(leds[i], newcolor, 128);
   }
+}
+
+void police() {
+	static int colorstep = 0;
+	static int flip = 1;
+  static int reds[NUM_LEDS];
+  static int init = 0;
+
+  // This fugly amount of code is to get my lewd in alternating reds and blues, I'm pretty sure there is a better way..
+  if(!init) {
+    for ( uint16_t i = 0 ; i < NUM_LEDS; i++) {
+      if(i % 2 == 1) { 
+        reds[i] = 1;
+      }
+    }
+    init = 1;
+  }
+  
+	colorstep = colorstep + (4 * flip);
+	if(colorstep >= 255) {
+    colorstep = 255;
+		flip = -1;
+	} else if (colorstep <= 0){
+    colorstep = 0;
+		flip = 1;
+   // Flip reds and blues everytime we hit 0
+    for ( uint16_t i = 0 ; i < NUM_LEDS; i++) {
+      reds[i] = (reds[i] == 1 ? 0 : 1);
+    }
+	}
+
+	for ( uint16_t i = 0 ; i < NUM_LEDS; i++) {
+      if(reds[i]) {
+			 	leds[i] = CRGB(colorstep, 0, 0);
+      } else {
+				leds[i] = CRGB(0, 0, colorstep);
+			}
+	}
+  FastLED.setBrightness(
 }
 
 // Alternate rendering function just scrolls the current palette
