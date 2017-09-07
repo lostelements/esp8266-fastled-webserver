@@ -46,6 +46,15 @@ ESP8266WebServer server(80);
 #define COLOR_ORDER   RGB
 #define NUM_LEDS      4
 
+#define EEPROM_BRIGHTNESS      0
+#define EEPROM_PATTERN      1
+#define EEPROM_SOLID_R      2
+#define EEPROM_SOLID_G      3
+#define EEPROM_SOLID_B      4
+#define EEPROM_PALETTE      5
+#define EEPROM_JOZEF_NUMBER      6
+#define EEPROM_JOZEF_BIG      7
+
 #define MILLI_AMPS         1500     // IMPORTANT: set here the max milli-Amps of your power supply 5V 2A = 2000
 #define FRAMES_PER_SECOND  120 // here you can control the speed. With the Access Point / Web Server the animations run a bit slower.
 
@@ -93,6 +102,7 @@ CRGB solidColor = CRGB::Black;
 uint8_t power = 1;
 uint8_t glitter = 0;
 uint8_t big = 0;
+uint8_t jozefnumber = 0;
 
 void setup(void) {
   Serial.begin(115200);
@@ -163,7 +173,9 @@ void setup(void) {
     WiFi.mode(WIFI_STA);
     Serial.printf("Connecting to %s\n", ssid);
     if (String(WiFi.SSID()) != String(ssid)) {
+      Serial.println("I'm not sure what is going on here, but you need this message");
       WiFi.begin(ssid, password);
+      
     }
 
     while (WiFi.status() != WL_CONNECTED) {
@@ -232,6 +244,12 @@ void setup(void) {
     String value = server.arg("value");
     setPattern(value.toInt());
     sendPattern();
+  });
+  
+  server.on("/jozefnumber", HTTP_POST, []() {
+    String value = server.arg("value");
+    setJozefNumber(value.toInt());
+    sendJozefNumber();
   });
 
   server.on("/patternUp", HTTP_POST, []() {
@@ -371,6 +389,13 @@ void loop(void) {
     nblendPaletteTowardPalette( gCurrentPalette, gTargetPalette, 16);
   }
 
+  EVERY_N_SECONDS( 600 ) {
+    if(apMode && wifi_softap_get_station_num() == 0) {
+      WiFi.forceSleepBegin();
+      Serial.println("Modem is sleeping now");
+    }
+  }
+  
   if (autoplayEnabled && millis() > autoPlayTimeout) {
     adjustPattern(true);
     autoPlayTimeout = millis() + (autoPlayDurationSeconds * 1000);
@@ -392,17 +417,17 @@ void loop(void) {
 
 void loadSettings()
 {
-  brightness = EEPROM.read(0);
+  brightness = EEPROM.read(EEPROM_BRIGHTNESS);
 
-  currentPatternIndex = EEPROM.read(1);
+  currentPatternIndex = EEPROM.read(EEPROM_PATTERN);
   if (currentPatternIndex < 0)
     currentPatternIndex = 0;
   else if (currentPatternIndex >= patternCount)
     currentPatternIndex = patternCount - 1;
 
-  byte r = EEPROM.read(2);
-  byte g = EEPROM.read(3);
-  byte b = EEPROM.read(4);
+  byte r = EEPROM.read(EEPROM_SOLID_R);
+  byte g = EEPROM.read(EEPROM_SOLID_G);
+  byte b = EEPROM.read(EEPROM_SOLID_B);
 
   if (r == 0 && g == 0 && b == 0)
   {
@@ -412,11 +437,15 @@ void loadSettings()
     solidColor = CRGB(r, g, b);
   }
 
-  currentPaletteIndex = EEPROM.read(5);
+  currentPaletteIndex = EEPROM.read(EEPROM_PALETTE);
   if (currentPaletteIndex < 0)
     currentPaletteIndex = 0;
   else if (currentPaletteIndex >= paletteCount)
     currentPaletteIndex = paletteCount - 1;
+	Serial.println("Reading my settings!");
+  big = EEPROM.read(EEPROM_JOZEF_BIG);
+  jozefnumber = EEPROM.read(EEPROM_JOZEF_NUMBER);
+  Serial.println("Reading " + jozefnumber);
 }
 
 void sendAll()
@@ -426,6 +455,8 @@ void sendAll()
   json += "\"power\":" + String(power) + ",";
   json += "\"glitter\":" + String(glitter) + ",";
   json += "\"big\":" + String(big) + ",";
+  json += "\"jozefnumber\":" + String(jozefnumber) + ",";
+  json += "\"numleds\":" + String(NUM_LEDS) + ",";
   json += "\"brightness\":" + String(brightness) + ",";
 
   json += "\"currentPattern\":{";
@@ -487,6 +518,14 @@ void sendBig()
   json = String();
 }
 
+void sendJozefNumber()
+{
+  String json = String(jozefnumber);
+  server.send(200, "text/json", json);
+  json = String();
+}
+
+
 void sendPattern()
 {
   String json = "{";
@@ -538,6 +577,16 @@ void setGlitter(uint8_t value)
 void setBig(uint8_t value)
 {
   big = value == 0 ? 0 : 1;
+  Serial.println("Writing big " + big);
+  EEPROM.write(EEPROM_JOZEF_BIG, big);
+  EEPROM.commit();
+}
+
+void setJozefNumber(uint8_t value) {
+  jozefnumber = value;
+  Serial.println("Writing " + jozefnumber);
+  EEPROM.write(EEPROM_JOZEF_NUMBER, jozefnumber);
+  EEPROM.commit();
 }
 
 void setSolidColor(CRGB color)
@@ -549,9 +598,9 @@ void setSolidColor(uint8_t r, uint8_t g, uint8_t b)
 {
   solidColor = CRGB(r, g, b);
 
-  EEPROM.write(2, r);
-  EEPROM.write(3, g);
-  EEPROM.write(4, b);
+  EEPROM.write(EEPROM_SOLID_R, r);
+  EEPROM.write(EEPROM_SOLID_G, g);
+  EEPROM.write(EEPROM_SOLID_B, b);
 
   setPattern(patternCount - 1);
 }
@@ -571,7 +620,7 @@ void adjustPattern(bool up)
     currentPatternIndex = 0;
 
   if (autoplayEnabled) {
-    EEPROM.write(1, currentPatternIndex);
+    EEPROM.write(EEPROM_PATTERN, currentPatternIndex);
     EEPROM.commit();
   }
 }
@@ -587,7 +636,7 @@ void setPattern(int value)
   currentPatternIndex = value;
 
   if (autoplayEnabled == 0) {
-    EEPROM.write(1, currentPatternIndex);
+    EEPROM.write(EEPROM_PATTERN, currentPatternIndex);
     EEPROM.commit();
   }
 }
@@ -602,7 +651,7 @@ void setPalette(int value)
 
   currentPaletteIndex = value;
 
-  EEPROM.write(5, currentPaletteIndex);
+  EEPROM.write(EEPROM_PALETTE, currentPaletteIndex);
   EEPROM.commit();
 }
 
@@ -624,7 +673,7 @@ void adjustBrightness(bool up)
 
   FastLED.setBrightness(brightness);
 
-  EEPROM.write(0, brightness);
+  EEPROM.write(EEPROM_BRIGHTNESS, brightness);
   EEPROM.commit();
 }
 
@@ -639,7 +688,7 @@ void setBrightness(int value)
 
   FastLED.setBrightness(brightness);
 
-  EEPROM.write(0, brightness);
+  EEPROM.write(EEPROM_BRIGHTNESS, brightness);
   EEPROM.commit();
 }
 
@@ -664,7 +713,8 @@ void rainbowWithGlitter()
 void addGlitter( fract8 chanceOfGlitter)
 {
   if ( random8() < chanceOfGlitter) {
-    leds[ random16(NUM_LEDS) ] += CRGB::White;
+    int randomed = random16(NUM_LEDS);
+    leds[randomed] += CRGB::White;
   }
 }
 
@@ -691,7 +741,7 @@ void jozef() {
   static CRGBPalette16 led_hue[NUM_LEDS];
   static int led_sat[NUM_LEDS];
 
-  static int DURATION = 400;
+  static int DURATION = 550;
   static int FREQ_INV = 400;
   int a = random(FREQ_INV);
   if (a < NUM_LEDS && led_duration[a] == 0) {
@@ -700,7 +750,7 @@ void jozef() {
     led_hue[a] = palettes[currentPaletteIndex];
   }
 
-  for(int i = 0; i < NUM_LEDS; i++) {
+  for(int i = 0; i < NUM_LEDS && i < jozefnumber; i++) {
     if(led_duration[i]  > 0) {
       int bri = constrain(led_duration[i] > 255 ? DURATION - led_duration[i] : led_duration[i], 0, brightness);
       leds[i] = ColorFromPalette(led_hue[i], led_sat[i], bri);
@@ -867,7 +917,7 @@ void police() {
 				leds[i] = CRGB(0, 0, colorstep);
 			}
 	}
-  FastLED.setBrightness(
+  FastLED.setBrightness(brightness);
 }
 
 // Alternate rendering function just scrolls the current palette
