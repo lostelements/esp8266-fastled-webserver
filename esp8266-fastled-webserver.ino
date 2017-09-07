@@ -41,7 +41,7 @@ const char* password = "";
 
 ESP8266WebServer server(80);
 
-#define DATA_PIN      D5     // for Huzzah: Pins w/o special function:  #4, #5, #12, #13, #14; // #16 does not work :(
+#define DATA_PIN      D5     
 #define LED_TYPE      WS2812B
 #define COLOR_ORDER   RGB
 #define NUM_LEDS      4
@@ -59,6 +59,7 @@ ESP8266WebServer server(80);
 #define FRAMES_PER_SECOND  120 // here you can control the speed. With the Access Point / Web Server the animations run a bit slower.
 
 CRGB leds[NUM_LEDS];
+int lit = NUM_LEDS;
 
 uint8_t patternIndex = 0;
 
@@ -88,13 +89,7 @@ CRGBPalette16 gCurrentPalette( CRGB::Black);
 CRGBPalette16 gTargetPalette( gGradientPalettes[0] );
 
 uint8_t currentPatternIndex = 0; // Index number of which pattern is current
-bool autoplayEnabled = false;
-
-uint8_t autoPlayDurationSeconds = 10;
-unsigned int autoPlayTimeout = 0;
-
 uint8_t currentPaletteIndex = 0;
-
 uint8_t gHue = 0; // rotating "base color" used by many of the patterns
 
 CRGB solidColor = CRGB::Black;
@@ -252,16 +247,6 @@ void setup(void) {
     sendJozefNumber();
   });
 
-  server.on("/patternUp", HTTP_POST, []() {
-    adjustPattern(true);
-    sendPattern();
-  });
-
-  server.on("/patternDown", HTTP_POST, []() {
-    adjustPattern(false);
-    sendPattern();
-  });
-
   server.on("/brightness", HTTP_GET, []() {
     sendBrightness();
   });
@@ -269,16 +254,6 @@ void setup(void) {
   server.on("/brightness", HTTP_POST, []() {
     String value = server.arg("value");
     setBrightness(value.toInt());
-    sendBrightness();
-  });
-
-  server.on("/brightnessUp", HTTP_POST, []() {
-    adjustBrightness(true);
-    sendBrightness();
-  });
-
-  server.on("/brightnessDown", HTTP_POST, []() {
-    adjustBrightness(false);
     sendBrightness();
   });
 
@@ -302,8 +277,6 @@ void setup(void) {
   server.begin();
 
   Serial.println("HTTP server started");
-
-  autoPlayTimeout = millis() + (autoPlayDurationSeconds * 1000);
 }
 
 typedef void (*Pattern)();
@@ -324,9 +297,9 @@ PatternAndNameList patterns = {
   { sinelon, "Sinelon" },
   { juggle, "Juggle" },
   { bpm, "BPM" },
-  { showSolidColor, "Solid Color" },
   { jozef, "Jozef's ding" },
   { police, "Da Police" },  
+  { showSolidColor, "Solid Color" },
 };
 
 const uint8_t patternCount = ARRAY_SIZE(patterns);
@@ -396,11 +369,6 @@ void loop(void) {
     }
   }
   
-  if (autoplayEnabled && millis() > autoPlayTimeout) {
-    adjustPattern(true);
-    autoPlayTimeout = millis() + (autoPlayDurationSeconds * 1000);
-  }
-
   // Call the current pattern function once, updating the 'leds' array
   patterns[currentPatternIndex].pattern();
 
@@ -442,11 +410,10 @@ void loadSettings()
     currentPaletteIndex = 0;
   else if (currentPaletteIndex >= paletteCount)
     currentPaletteIndex = paletteCount - 1;
-	Serial.println("Reading my settings!");
   big = EEPROM.read(EEPROM_JOZEF_BIG);
   jozefnumber = EEPROM.read(EEPROM_JOZEF_NUMBER);
-  Serial.println("Reading " + jozefnumber);
-}
+  lit = _min(jozefnumber, NUM_LEDS);
+ }
 
 void sendAll()
 {
@@ -584,6 +551,7 @@ void setBig(uint8_t value)
 
 void setJozefNumber(uint8_t value) {
   jozefnumber = value;
+  lit = _min(jozefnumber, NUM_LEDS);
   Serial.println("Writing " + jozefnumber);
   EEPROM.write(EEPROM_JOZEF_NUMBER, jozefnumber);
   EEPROM.commit();
@@ -605,26 +573,6 @@ void setSolidColor(uint8_t r, uint8_t g, uint8_t b)
   setPattern(patternCount - 1);
 }
 
-// increase or decrease the current pattern number, and wrap around at the ends
-void adjustPattern(bool up)
-{
-  if (up)
-    currentPatternIndex++;
-  else
-    currentPatternIndex--;
-
-  // wrap around at the ends
-  if (currentPatternIndex < 0)
-    currentPatternIndex = patternCount - 1;
-  if (currentPatternIndex >= patternCount)
-    currentPatternIndex = 0;
-
-  if (autoplayEnabled) {
-    EEPROM.write(EEPROM_PATTERN, currentPatternIndex);
-    EEPROM.commit();
-  }
-}
-
 void setPattern(int value)
 {
   // don't wrap around at the ends
@@ -634,11 +582,8 @@ void setPattern(int value)
     value = patternCount - 1;
 
   currentPatternIndex = value;
-
-  if (autoplayEnabled == 0) {
-    EEPROM.write(EEPROM_PATTERN, currentPatternIndex);
-    EEPROM.commit();
-  }
+  EEPROM.write(EEPROM_PATTERN, currentPatternIndex);
+  EEPROM.commit();
 }
 
 void setPalette(int value)
@@ -652,28 +597,6 @@ void setPalette(int value)
   currentPaletteIndex = value;
 
   EEPROM.write(EEPROM_PALETTE, currentPaletteIndex);
-  EEPROM.commit();
-}
-
-// adjust the brightness, and wrap around at the ends
-void adjustBrightness(bool up)
-{
-  if (up)
-    brightnessIndex++;
-  else
-    brightnessIndex--;
-
-  // wrap around at the ends
-  if (brightnessIndex < 0)
-    brightnessIndex = brightnessCount - 1;
-  else if (brightnessIndex >= brightnessCount)
-    brightnessIndex = 0;
-
-  brightness = brightnessMap[brightnessIndex];
-
-  FastLED.setBrightness(brightness);
-
-  EEPROM.write(EEPROM_BRIGHTNESS, brightness);
   EEPROM.commit();
 }
 
@@ -694,13 +617,13 @@ void setBrightness(int value)
 
 void showSolidColor()
 {
-  fill_solid(leds, NUM_LEDS, solidColor);
+  fill_solid(leds, lit, solidColor);
 }
 
 void rainbow()
 {
   // FastLED's built-in rainbow generator
-  fill_rainbow( leds, NUM_LEDS, gHue, 10);
+  fill_rainbow( leds, lit, gHue, 10);
 }
 
 void rainbowWithGlitter()
@@ -713,7 +636,7 @@ void rainbowWithGlitter()
 void addGlitter( fract8 chanceOfGlitter)
 {
   if ( random8() < chanceOfGlitter) {
-    int randomed = random16(NUM_LEDS);
+    int randomed = random16(lit);
     leds[randomed] += CRGB::White;
   }
 }
@@ -722,7 +645,7 @@ void confetti()
 {
   // random colored speckles that blink in and fade smoothly
   fadeToBlackBy( leds, NUM_LEDS, 10);
-  int pos = random16(NUM_LEDS);
+  int pos = random16(lit);
   //  leds[pos] += CHSV( gHue + random8(64), 200, 255);
   leds[pos] += ColorFromPalette(palettes[currentPaletteIndex], gHue + random8(64));
 }
@@ -731,9 +654,11 @@ void sinelon()
 {
   // a colored dot sweeping back and forth, with fading trails
   fadeToBlackBy( leds, NUM_LEDS, 20);
-  int pos = beatsin16(13, 0, NUM_LEDS - 1);
-  //  leds[pos] += CHSV( gHue, 255, 192);
-  leds[pos] += ColorFromPalette(palettes[currentPaletteIndex], gHue, 192);
+  if(lit > 2) {
+    int pos = beatsin16(13, 0, lit - 1);
+    //  leds[pos] += CHSV( gHue, 255, 192);
+    leds[pos] += ColorFromPalette(palettes[currentPaletteIndex], gHue, 192);
+  }
 }
 
 void jozef() {
@@ -742,15 +667,15 @@ void jozef() {
   static int led_sat[NUM_LEDS];
 
   static int DURATION = 550;
-  static int FREQ_INV = 400;
+  static int FREQ_INV = 600;
   int a = random(FREQ_INV);
-  if (a < NUM_LEDS && led_duration[a] == 0) {
+  if (a < lit && led_duration[a] == 0) {
     led_duration[a] = random(DURATION - (DURATION / 10), DURATION  + (DURATION / 10));
     led_sat[a] = gHue;
     led_hue[a] = palettes[currentPaletteIndex];
   }
 
-  for(int i = 0; i < NUM_LEDS && i < jozefnumber; i++) {
+  for(int i = 0; i < lit; i++) {
     if(led_duration[i]  > 0) {
       int bri = constrain(led_duration[i] > 255 ? DURATION - led_duration[i] : led_duration[i], 0, brightness);
       leds[i] = ColorFromPalette(led_hue[i], led_sat[i], bri);
@@ -772,7 +697,7 @@ void bpm()
   uint8_t BeatsPerMinute = 62;
   CRGBPalette16 palette = palettes[currentPaletteIndex];
   uint8_t beat = beatsin8( BeatsPerMinute, 64, 255);
-  for ( int i = 0; i < NUM_LEDS; i++) { //9948
+  for ( int i = 0; i < NUM_LEDS && i < jozefnumber; i++) { //9948
     leds[i] = ColorFromPalette(palette, gHue + (i * 2), beat - gHue + (i * 10));
   }
 }
@@ -780,12 +705,12 @@ void bpm()
 void juggle()
 {
   // eight colored dots, weaving in and out of sync with each other
-  fadeToBlackBy( leds, NUM_LEDS, 20);
+  fadeToBlackBy( leds, lit, 20);
   byte dothue = 0;
   for ( int i = 0; i < 8; i++)
   {
     //    leds[beatsin16(i + 7, 0, NUM_LEDS)] |= CHSV(dothue, 200, 255);
-    leds[beatsin16(i + 7, 0, NUM_LEDS)] |= ColorFromPalette(palettes[currentPaletteIndex], dothue);
+    leds[beatsin16(i + 7, 0, lit)] |= ColorFromPalette(palettes[currentPaletteIndex], dothue);
     dothue += 32;
   }
 }
@@ -813,7 +738,7 @@ void pride() {
   sHue16 += deltams * beatsin88( 400, 5, 9);
   uint16_t brightnesstheta16 = sPseudotime;
 
-  for ( uint16_t i = 0 ; i < NUM_LEDS; i++) {
+  for ( uint16_t i = 0 ; i < lit; i++) {
     hue16 += hueinc16;
     uint8_t hue8 = hue16 / 256;
 
@@ -854,7 +779,7 @@ void colorwaves()
   sHue16 += deltams * beatsin88( 400, 5, 9);
   uint16_t brightnesstheta16 = sPseudotime;
 
-  for ( uint16_t i = 0 ; i < NUM_LEDS; i++) {
+  for ( uint16_t i = 0 ; i < lit; i++) {
     hue16 += hueinc16;
     uint8_t hue8 = hue16 / 256;
     uint16_t h16_128 = hue16 >> 7;
