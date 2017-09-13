@@ -1,7 +1,7 @@
 FastLED + ESP8266 Web Server
 =========
 
-Control an addressable LED strip with an ESP8266 via a web browser or infrared remote control. In regards to the original code, I've added some GUI buttons and a new pattern and removed the IR code, so I can use the ESP8266 in a LARP game. 
+Control an addressable LED strip with an ESP8266 via a web browser or infrared remote control. In regards to the original code, some GUI buttons and new patterns were added and the IR code was removed. 
 
 Hardware
 --------
@@ -25,13 +25,15 @@ Web App
 
 ![Web App](webapp.png)
 
-Patterns are requested by the app from the ESP8266, so as new patterns are added, they're automatically listed in the app.
+In default setup, open the web app by connecting to the "Ledserver" access point and open http://ledserver.local - note that the default setup is just four leds. Change the number of leds in the NUM_LEDS to for example 60 if you have a 2m led string. 
 
 The web app is stored in SPIFFS (on-board flash memory).
 
 The web app is a single page app that uses [jQuery](https://jquery.com) and [Bootstrap](http://getbootstrap.com).  It has buttons for On/Off, a slider for brightness, a pattern selector, and a color picker (using [jQuery MiniColors](http://labs.abeautifulsite.net/jquery-minicolors)).  Event handlers for the controls are wired up, so you don't have to click a 'Send' button after making changes.  The brightness slider and the color picker use a delayed event handler, to prevent from flooding the ESP8266 web server with too many requests too quickly.
 
 The only drawback to SPIFFS that I've found so far is uploading the files can be extremely slow, requiring several minutes, sometimes regardless of how large the files are.  It can be so slow that I've been just developing the web app and debugging locally on my desktop (with a hard-coded IP for the ESP8266), before uploading to SPIFFS and testing on the ESP8266.
+
+Patterns are requested by the app from the ESP8266, so as new patterns are added, they're automatically listed in the app.
 
 Installing
 -----------
