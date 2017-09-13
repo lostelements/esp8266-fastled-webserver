@@ -26,6 +26,7 @@ extern "C" {
 
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <ESP8266mDNS.h>
 #include <FS.h>
 #include <EEPROM.h>
 #include "GradientPalettes.h"
@@ -38,12 +39,14 @@ const char WiFiAPPSK[] = "";
 // Wi-Fi network to connect to (if not in AP mode)
 const char* ssid = "";
 const char* password = "";
+const char* mdns_hostname = "ledserver";
 
 ESP8266WebServer server(80);
 
 #define DATA_PIN      D5     
 #define LED_TYPE      WS2812B
 #define COLOR_ORDER   RGB
+// Set your number of leds here!
 #define NUM_LEDS      4
 
 #define EEPROM_BRIGHTNESS      0
@@ -52,10 +55,11 @@ ESP8266WebServer server(80);
 #define EEPROM_SOLID_G      3
 #define EEPROM_SOLID_B      4
 #define EEPROM_PALETTE      5
-#define EEPROM_JOZEF_NUMBER      6
-#define EEPROM_JOZEF_BIG      7
+#define EEPROM_LIT      6
+#define EEPROM_BIG      7
 
 #define MILLI_AMPS         1500     // IMPORTANT: set here the max milli-Amps of your power supply 5V 2A = 2000
+#define AP_POWER_SAVE 	   1   // Set to 0 if you do not want the access point to shut down after 10 minutes of unuse
 #define FRAMES_PER_SECOND  120 // here you can control the speed. With the Access Point / Web Server the animations run a bit slower.
 
 CRGB leds[NUM_LEDS];
@@ -96,8 +100,7 @@ CRGB solidColor = CRGB::Black;
 
 uint8_t power = 1;
 uint8_t glitter = 0;
-uint8_t big = 0;
-uint8_t jozefnumber = 0;
+uint8_t big = 0;  // Activate led 0 as a "special" always lit slightly vibrating led, regardless of pattern
 
 void setup(void) {
   Serial.begin(115200);
@@ -138,9 +141,10 @@ void setup(void) {
     }
     Serial.printf("\n");
   }
+  
+  WiFi.hostname(mdns_hostname);
 
-  if (apMode)
-  {
+  if (apMode) {
     WiFi.mode(WIFI_AP);
 
     // Do a little work to get a unique-ish name. Append the
@@ -150,34 +154,32 @@ void setup(void) {
     String macID = String(mac[WL_MAC_ADDR_LENGTH - 2], HEX) +
                    String(mac[WL_MAC_ADDR_LENGTH - 1], HEX);
     macID.toUpperCase();
-    String AP_NameString = "Jozefs Artefact " + macID;
+    String AP_NameString = "Ledserver " + macID;
 
     char AP_NameChar[AP_NameString.length() + 1];
     memset(AP_NameChar, 0, AP_NameString.length() + 1);
 
-    for (int i = 0; i < AP_NameString.length(); i++)
+    for (int i = 0; i < AP_NameString.length(); i++) {
       AP_NameChar[i] = AP_NameString.charAt(i);
+    }
 
     WiFi.softAP(AP_NameChar, WiFiAPPSK);
+    MDNS.begin(mdns_hostname);
+    MDNS.addService("http", "tcp", 80);
 
     Serial.printf("Connect to Wi-Fi access point: %s\n", AP_NameChar);
-    Serial.println("and open http://192.168.4.1 in your browser");
-  }
-  else
-  {
+    Serial.println("and open http://192.168.4.1 or http://" + String(mdns_hostname) + ".local in your browser");
+  } else {
     WiFi.mode(WIFI_STA);
     Serial.printf("Connecting to %s\n", ssid);
     if (String(WiFi.SSID()) != String(ssid)) {
       Serial.println("I'm not sure what is going on here, but you need this message");
       WiFi.begin(ssid, password);
-      
     }
-
     while (WiFi.status() != WL_CONNECTED) {
       delay(500);
       Serial.print(".");
     }
-
     Serial.print("Connected! Open http://");
     Serial.print(WiFi.localIP());
     Serial.println(" in your browser");
@@ -241,10 +243,10 @@ void setup(void) {
     sendPattern();
   });
   
-  server.on("/jozefnumber", HTTP_POST, []() {
+  server.on("/lit", HTTP_POST, []() {
     String value = server.arg("value");
-    setJozefNumber(value.toInt());
-    sendJozefNumber();
+    setLit(value.toInt());
+    sendLit();
   });
 
   server.on("/brightness", HTTP_GET, []() {
@@ -297,7 +299,7 @@ PatternAndNameList patterns = {
   { sinelon, "Sinelon" },
   { juggle, "Juggle" },
   { bpm, "BPM" },
-  { jozef, "Jozef's ding" },
+  { jozef, "Jozef's pattern" },
   { police, "Da Police" },  
   { showSolidColor, "Solid Color" },
 };
@@ -362,8 +364,9 @@ void loop(void) {
     nblendPaletteTowardPalette( gCurrentPalette, gTargetPalette, 16);
   }
 
+  
   EVERY_N_SECONDS( 600 ) {
-    if(apMode && wifi_softap_get_station_num() == 0) {
+    if(apMode && wifi_softap_get_station_num() == 0 && AP_POWER_SAVE) {
       WiFi.forceSleepBegin();
       Serial.println("Modem is sleeping now");
     }
@@ -375,6 +378,12 @@ void loop(void) {
   if(glitter) {
     addGlitter(3);
   }
+  
+  // If the big led (led 0) is activated
+  if(big == 1) {
+    leds[0] = CHSV(0,random(0,50),255);
+  }
+
 
   FastLED.show();
 
@@ -410,9 +419,8 @@ void loadSettings()
     currentPaletteIndex = 0;
   else if (currentPaletteIndex >= paletteCount)
     currentPaletteIndex = paletteCount - 1;
-  big = EEPROM.read(EEPROM_JOZEF_BIG);
-  jozefnumber = EEPROM.read(EEPROM_JOZEF_NUMBER);
-  lit = _min(jozefnumber, NUM_LEDS);
+  big = EEPROM.read(EEPROM_BIG);
+  lit = _min(EEPROM.read(EEPROM_LIT), NUM_LEDS);
  }
 
 void sendAll()
@@ -422,7 +430,7 @@ void sendAll()
   json += "\"power\":" + String(power) + ",";
   json += "\"glitter\":" + String(glitter) + ",";
   json += "\"big\":" + String(big) + ",";
-  json += "\"jozefnumber\":" + String(jozefnumber) + ",";
+  json += "\"lit\":" + String(lit) + ",";
   json += "\"numleds\":" + String(NUM_LEDS) + ",";
   json += "\"brightness\":" + String(brightness) + ",";
 
@@ -485,13 +493,12 @@ void sendBig()
   json = String();
 }
 
-void sendJozefNumber()
+void sendLit()
 {
-  String json = String(jozefnumber);
+  String json = String(lit);
   server.send(200, "text/json", json);
   json = String();
 }
-
 
 void sendPattern()
 {
@@ -545,15 +552,14 @@ void setBig(uint8_t value)
 {
   big = value == 0 ? 0 : 1;
   Serial.println("Writing big " + big);
-  EEPROM.write(EEPROM_JOZEF_BIG, big);
+  EEPROM.write(EEPROM_BIG, big);
   EEPROM.commit();
 }
 
-void setJozefNumber(uint8_t value) {
-  jozefnumber = value;
-  lit = _min(jozefnumber, NUM_LEDS);
-  Serial.println("Writing " + jozefnumber);
-  EEPROM.write(EEPROM_JOZEF_NUMBER, jozefnumber);
+void setLit(uint8_t value) {
+  lit = _min(value, NUM_LEDS);
+  Serial.println("Writing " + lit);
+  EEPROM.write(EEPROM_LIT, lit);
   EEPROM.commit();
 }
 
@@ -576,11 +582,11 @@ void setSolidColor(uint8_t r, uint8_t g, uint8_t b)
 void setPattern(int value)
 {
   // don't wrap around at the ends
-  if (value < 0)
+  if (value < 0) {
     value = 0;
-  else if (value >= patternCount)
+  } else if (value >= patternCount) {
     value = patternCount - 1;
-
+  }
   currentPatternIndex = value;
   EEPROM.write(EEPROM_PATTERN, currentPatternIndex);
   EEPROM.commit();
@@ -589,10 +595,11 @@ void setPattern(int value)
 void setPalette(int value)
 {
   // don't wrap around at the ends
-  if (value < 0)
+  if (value < 0) {
     value = 0;
-  else if (value >= paletteCount)
+  } else if (value >= paletteCount) {
     value = paletteCount - 1;
+  }
 
   currentPaletteIndex = value;
 
@@ -661,13 +668,23 @@ void sinelon()
   }
 }
 
+
+// Pattern made for someone named Jozef. This pattern slowly lights and fades random 
+// numbers of leds
 void jozef() {
   static int led_duration[NUM_LEDS];
   static CRGBPalette16 led_hue[NUM_LEDS];
   static int led_sat[NUM_LEDS];
 
+  // This value sets how long leds remain lit, approximately. A random deviation is added
+  // at each iteration
   static int DURATION = 550;
+  
+  // How often leds trigger. Higher = more often. Note that every iteration only triggers 
+  // ONE led, irregardless of how many leds you have. If you want more you should rewrite 
+  // this function to random a duration for every led. 
   static int FREQ_INV = 600;
+  
   int a = random(FREQ_INV);
   if (a < lit && led_duration[a] == 0) {
     led_duration[a] = random(DURATION - (DURATION / 10), DURATION  + (DURATION / 10));
@@ -684,11 +701,6 @@ void jozef() {
         leds[i] = CRGB::Black; 
     }
   }
- 
-  if(big == 1) {
-    leds[0] = CHSV(0,random(0,50),255);
-  }
-  
 }
 
 void bpm()
@@ -697,7 +709,7 @@ void bpm()
   uint8_t BeatsPerMinute = 62;
   CRGBPalette16 palette = palettes[currentPaletteIndex];
   uint8_t beat = beatsin8( BeatsPerMinute, 64, 255);
-  for ( int i = 0; i < NUM_LEDS && i < jozefnumber; i++) { //9948
+  for ( int i = 0; i < NUM_LEDS && i < lit; i++) { //9948
     leds[i] = ColorFromPalette(palette, gHue + (i * 2), beat - gHue + (i * 10));
   }
 }
@@ -809,40 +821,49 @@ void colorwaves()
 void police() {
 	static int colorstep = 0;
 	static int flip = 1;
-  static int reds[NUM_LEDS];
-  static int init = 0;
+	static uint16_t reds[NUM_LEDS];
+	static uint16_t init = 0;
 
-  // This fugly amount of code is to get my lewd in alternating reds and blues, I'm pretty sure there is a better way..
-  if(!init) {
-    for ( uint16_t i = 0 ; i < NUM_LEDS; i++) {
-      if(i % 2 == 1) { 
-        reds[i] = 1;
-      }
-    }
-    init = 1;
-  }
+	// This ugly amount of code is to get my leds in alternating reds and blues, 
+	// I'm pretty sure there is a better way by bitshifting or such. 
+	// This codes generates an array of alternating ones and zeroes. 
+	if(init == 0) {
+		for ( uint16_t i = 0 ; i < NUM_LEDS; i++) {
+		  if(i % 2 == 1) { 
+  			reds[i] = 1;
+		  }
+		}
+		init = 1;
+	}
   
+    // We use 4x flip so the brightness ramps up a lot faster    
 	colorstep = colorstep + (4 * flip);
+	
+	// If we hit boundaries, start powering the leds down
 	if(colorstep >= 255) {
-    colorstep = 255;
+  	colorstep = 255;
 		flip = -1;
+    // And if the led is powered down, switch colors
 	} else if (colorstep <= 0){
-    colorstep = 0;
+  	colorstep = 0;
 		flip = 1;
-   // Flip reds and blues everytime we hit 0
-    for ( uint16_t i = 0 ; i < NUM_LEDS; i++) {
-      reds[i] = (reds[i] == 1 ? 0 : 1);
-    }
+		// Flip reds and blues
+		for ( uint16_t i = 0 ; i < NUM_LEDS; i++) {
+		  reds[i] = (reds[i] == 1 ? 0 : 1);
+		}
 	}
 
-	for ( uint16_t i = 0 ; i < NUM_LEDS; i++) {
-      if(reds[i]) {
-			 	leds[i] = CRGB(colorstep, 0, 0);
-      } else {
-				leds[i] = CRGB(0, 0, colorstep);
-			}
+	// Actually color the leds
+	for ( uint16_t i = 0 ; i < lit; i++) {
+	    // ..if this led is red
+		if(reds[i]) {
+			leds[i] = CRGB(colorstep, 0, 0);
+		// ..if this led is blue
+		} else {
+			leds[i] = CRGB(0, 0, colorstep);
+		}
 	}
-  FastLED.setBrightness(brightness);
+	FastLED.setBrightness(brightness);
 }
 
 // Alternate rendering function just scrolls the current palette

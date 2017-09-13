@@ -18,6 +18,7 @@ Features
 * Adjust the brightness
 * Change the display pattern
 * Adjust the color
+* Select the number of lit leds 
 
 Web App
 --------

@@ -90,8 +90,8 @@ $("#inputPalette").change(function() {
    setPalette($("#inputPalette option:selected").index());
 });
 
-$("#inputJozefNumber").change(function() {
-   setJozefNumber($("#inputJozefNumber option:selected").index());
+$("#inputLitNumber").change(function() {
+   setLitNumber($("#inputLitNumber option:selected").index());
 });
 
 
@@ -158,9 +158,9 @@ function getAll() {
 	
 	 // load palette list
     for(var i = 0; i < (data.numleds + 1); i++) {
-      $("#inputJozefNumber").append("<option value='" + i + "'>" + i + "</option>");
+      $("#inputLitNumber").append("<option value='" + i + "'>" + i + "</option>");
     }
-	$("#inputJozefNumber").val(data.jozefnumber)
+	$("#inputLitNumber").val(data.lit)
 	
     $("#status").html("Ready");
   });
@@ -197,9 +197,9 @@ function setBig(value) {
     });
 }
 
-function setJozefNumber(value) {
-    $.post(urlBase + "jozefnumber?value=" + value, function(data) {
-        $("#status").html("Set Jozefs leds to: " + data);
+function setLitNumber(value) {
+    $.post(urlBase + "lit?value=" + value, function(data) {
+        $("#status").html("Set number of lit leds to: " + data);
     });
 }
 
