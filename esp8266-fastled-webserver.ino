@@ -25,29 +25,34 @@ extern "C" {
 }
 
 #include <ESP8266WiFi.h>
+#include <DNSServer.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
+#include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager
 #include <FS.h>
 #include <EEPROM.h>
 #include "GradientPalettes.h"
+#include <ArduinoJson.h>          //https://github.com/bblanchon/ArduinoJson
+#include <PubSubClient.h> //on Lostelemnts Git
 
-const bool apMode = true;
+const bool apMode = false;
 
 // AP mode password
 const char WiFiAPPSK[] = "";
 
 // Wi-Fi network to connect to (if not in AP mode)
-const char* ssid = "";
-const char* password = "";
-const char* mdns_hostname = "ledserver";
+const char* ssid =  "BTHub5-SZR2";    // Your  ssid cannot be longer than 32 characters!
+const char* password =  "d4b2efef95";   // Your hub password
+
+const char* mdns_hostname = "ledsign";
 
 ESP8266WebServer server(80);
 
 #define DATA_PIN      D5     
 #define LED_TYPE      WS2812B
-#define COLOR_ORDER   RGB
+#define COLOR_ORDER   GRB
 // Set your number of leds here!
-#define NUM_LEDS      4
+#define NUM_LEDS      8
 
 #define EEPROM_BRIGHTNESS      0
 #define EEPROM_PATTERN      1
