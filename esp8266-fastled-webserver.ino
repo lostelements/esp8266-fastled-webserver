@@ -46,6 +46,14 @@ const char* password =  "d4b2efef95";   // Your hub password
 
 const char* mdns_hostname = "ledsign";
 
+IPAddress ipmos(192, 168, 1, 76); // IP address of Mosquitto server should be loaded from Spiffs later
+//define set name of your sign
+String signname = "Room1"; //should be loaded from spiffs
+//define mqtt message names
+String thissign = "ledsign\\" + signname;
+String allsigns = "ledsign\\all";
+
+
 ESP8266WebServer server(80);
 
 #define DATA_PIN      D5     
