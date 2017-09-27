@@ -35,14 +35,7 @@ extern "C" {
 #include <ArduinoJson.h>          //https://github.com/bblanchon/ArduinoJson
 #include <PubSubClient.h> //on Lostelemnts Git
 
-const bool apMode = false;
 
-// AP mode password
-const char WiFiAPPSK[] = "";
-
-// Wi-Fi network to connect to (if not in AP mode)
-const char* ssid =  "BTHub5-SZR2";    // Your  ssid cannot be longer than 32 characters!
-const char* password =  "d4b2efef95";   // Your hub password
 
 const char* mdns_hostname = "ledsign";
 
@@ -52,9 +45,13 @@ String signname = "Room1"; //should be loaded from spiffs
 //define mqtt message names
 String thissign = "ledsign\\" + signname;
 String allsigns = "ledsign\\all";
+//Default Values for Mqtt
+char mqtt_server[40];
+char mqtt_port[6] = "8080";
+//flag for saving data
+bool shouldSaveConfig = false;
 
-
-ESP8266WebServer server(80);
+std::unique_ptr<ESP8266WebServer> server;
 
 #define DATA_PIN      D5     
 #define LED_TYPE      WS2812B
@@ -115,10 +112,17 @@ uint8_t power = 1;
 uint8_t glitter = 0;
 uint8_t big = 0;  // Activate led 0 as a "special" always lit slightly vibrating led, regardless of pattern
 
+//callback notifying us of the need to save config
+void saveConfigCallback () {
+  Serial.println("Should save config");
+  shouldSaveConfig = true;
+}
+
 void setup(void) {
   Serial.begin(115200);
   delay(100);
   Serial.setDebugOutput(true);
+  
 
   FastLED.addLeds<LED_TYPE, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS);         // for WS2812 (Neopixel)
   //FastLED.addLeds<LED_TYPE,DATA_PIN,CLK_PIN,COLOR_ORDER>(leds, NUM_LEDS); // for APA102 (Dotstar)
@@ -154,142 +158,109 @@ void setup(void) {
     }
     Serial.printf("\n");
   }
-  
-  WiFi.hostname(mdns_hostname);
-
-  if (apMode) {
-    WiFi.mode(WIFI_AP);
-
-    // Do a little work to get a unique-ish name. Append the
-    // last two bytes of the MAC (HEX'd) to "Thing-":
-    uint8_t mac[WL_MAC_ADDR_LENGTH];
-    WiFi.softAPmacAddress(mac);
-    String macID = String(mac[WL_MAC_ADDR_LENGTH - 2], HEX) +
-                   String(mac[WL_MAC_ADDR_LENGTH - 1], HEX);
-    macID.toUpperCase();
-    String AP_NameString = "Ledserver " + macID;
-
-    char AP_NameChar[AP_NameString.length() + 1];
-    memset(AP_NameChar, 0, AP_NameString.length() + 1);
-
-    for (int i = 0; i < AP_NameString.length(); i++) {
-      AP_NameChar[i] = AP_NameString.charAt(i);
-    }
-
-    WiFi.softAP(AP_NameChar, WiFiAPPSK);
-    MDNS.begin(mdns_hostname);
-    MDNS.addService("http", "tcp", 80);
-
-    Serial.printf("Connect to Wi-Fi access point: %s\n", AP_NameChar);
-    Serial.println("and open http://192.168.4.1 or http://" + String(mdns_hostname) + ".local in your browser");
-  } else {
-    WiFi.mode(WIFI_STA);
-    Serial.printf("Connecting to %s\n", ssid);
-    if (String(WiFi.SSID()) != String(ssid)) {
-      Serial.println("I'm not sure what is going on here, but you need this message");
-      WiFi.begin(ssid, password);
-    }
-    while (WiFi.status() != WL_CONNECTED) {
-      delay(500);
-      Serial.print(".");
-    }
+  WiFiManager wifimanager;
+  //wifimanager.resetSettings();
+  wifimanager.autoConnect("AutoConnectAP");
+   //if you get here you have connected to the WiFi
+    Serial.println("connected...yeey :)");
+    server.reset(new ESP8266WebServer(WiFi.localIP(), 80));
     Serial.print("Connected! Open http://");
     Serial.print(WiFi.localIP());
     Serial.println(" in your browser");
-  }
+  WiFi.hostname(mdns_hostname);
 
-  //  server.serveStatic("/", SPIFFS, "/index.htm"); // ,"max-age=86400"
 
-  server.on("/all", HTTP_GET, []() {
+
+  server->on("/all", HTTP_GET, []() {
     sendAll();
   });
 
-  server.on("/power", HTTP_GET, []() {
+  server->on("/power", HTTP_GET, []() {
     sendPower();
   });
 
-  server.on("/glitter", HTTP_GET, []() {
+  server->on("/glitter", HTTP_GET, []() {
     sendGlitter();
   });
 
-  server.on("/big", HTTP_GET, []() {
+  server->on("/big", HTTP_GET, []() {
     sendBig();
   });
   
-  server.on("/power", HTTP_POST, []() {
-    String value = server.arg("value");
+  server->on("/power", HTTP_POST, []() {
+    String value = server->arg("value");
     setPower(value.toInt());
     sendPower();
   });
 
-  server.on("/glitter", HTTP_POST, []() {
-    String value = server.arg("value");
+  server->on("/glitter", HTTP_POST, []() {
+    String value = server->arg("value");
     setGlitter(value.toInt());
     sendGlitter();
   });
 
-  server.on("/big", HTTP_POST, []() {
-    String value = server.arg("value");
+  server->on("/big", HTTP_POST, []() {
+    String value = server->arg("value");
     setBig(value.toInt());
     sendBig();
   });
 
-  server.on("/solidColor", HTTP_GET, []() {
+  server->on("/solidColor", HTTP_GET, []() {
     sendSolidColor();
   });
 
-  server.on("/solidColor", HTTP_POST, []() {
-    String r = server.arg("r");
-    String g = server.arg("g");
-    String b = server.arg("b");
+  server->on("/solidColor", HTTP_POST, []() {
+    String r = server->arg("r");
+    String g = server->arg("g");
+    String b = server->arg("b");
     setSolidColor(r.toInt(), g.toInt(), b.toInt());
     sendSolidColor();
   });
 
-  server.on("/pattern", HTTP_GET, []() {
+  server->on("/pattern", HTTP_GET, []() {
     sendPattern();
   });
 
-  server.on("/pattern", HTTP_POST, []() {
-    String value = server.arg("value");
+  server->on("/pattern", HTTP_POST, []() {
+    String value = server->arg("value");
     setPattern(value.toInt());
     sendPattern();
   });
   
-  server.on("/lit", HTTP_POST, []() {
-    String value = server.arg("value");
+  server->on("/lit", HTTP_POST, []() {
+    String value = server->arg("value");
     setLit(value.toInt());
     sendLit();
   });
 
-  server.on("/brightness", HTTP_GET, []() {
+  server->on("/brightness", HTTP_GET, []() {
     sendBrightness();
   });
 
-  server.on("/brightness", HTTP_POST, []() {
-    String value = server.arg("value");
+  server->on("/brightness", HTTP_POST, []() {
+    String value = server->arg("value");
     setBrightness(value.toInt());
     sendBrightness();
   });
 
-  server.on("/palette", HTTP_GET, []() {
+  server->on("/palette", HTTP_GET, []() {
     sendPalette();
   });
 
-  server.on("/palette", HTTP_POST, []() {
-    String value = server.arg("value");
+  server->on("/palette", HTTP_POST, []() {
+    String value = server->arg("value");
     setPalette(value.toInt());
     sendPalette();
   });
 
-  server.serveStatic("/index.htm", SPIFFS, "/index.htm");
-  server.serveStatic("/fonts", SPIFFS, "/fonts", "max-age=86400");
-  server.serveStatic("/js", SPIFFS, "/js");
-  server.serveStatic("/css", SPIFFS, "/css", "max-age=86400");
-  server.serveStatic("/images", SPIFFS, "/images", "max-age=86400");
-  server.serveStatic("/", SPIFFS, "/index.htm");
+  server->serveStatic("/index.htm", SPIFFS, "/index.htm");
+  server->serveStatic("/fonts", SPIFFS, "/fonts", "max-age=86400");
+  server->serveStatic("/js", SPIFFS, "/js");
+  server->serveStatic("/css", SPIFFS, "/css", "max-age=86400");
+  server->serveStatic("/images", SPIFFS, "/images", "max-age=86400");
+  server->serveStatic("/", SPIFFS, "/index.htm");
 
-  server.begin();
+  server->begin();
 
   Serial.println("HTTP server started");
 }
@@ -353,7 +324,7 @@ void loop(void) {
   // Add entropy to random number generator; we use a lot of it.
   random16_add_entropy(random(65535));
 
-  server.handleClient();
+  server->handleClient();
 
   if (power == 0) {
     fill_solid(leds, NUM_LEDS, CRGB::Black);
@@ -378,12 +349,7 @@ void loop(void) {
   }
 
   
-  EVERY_N_SECONDS( 600 ) {
-    if(apMode && wifi_softap_get_station_num() == 0 && AP_POWER_SAVE) {
-      WiFi.forceSleepBegin();
-      Serial.println("Modem is sleeping now");
-    }
-  }
+ 
   
   // Call the current pattern function once, updating the 'leds' array
   patterns[currentPatternIndex].pattern();
@@ -481,35 +447,35 @@ void sendAll()
 
   json += "}";
 
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
 
 void sendPower()
 {
   String json = String(power);
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
 
 void sendGlitter()
 {
   String json = String(glitter);
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
 
 void sendBig()
 {
   String json = String(big);
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
 
 void sendLit()
 {
   String json = String(lit);
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
 
@@ -519,7 +485,7 @@ void sendPattern()
   json += "\"index\":" + String(currentPatternIndex);
   json += ",\"name\":\"" + patterns[currentPatternIndex].name + "\"";
   json += "}";
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
 
@@ -529,14 +495,14 @@ void sendPalette()
   json += "\"index\":" + String(currentPaletteIndex);
   json += ",\"name\":\"" + paletteNames[currentPaletteIndex] + "\"";
   json += "}";
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
 
 void sendBrightness()
 {
   String json = String(brightness);
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
 
@@ -547,7 +513,7 @@ void sendSolidColor()
   json += ",\"g\":" + String(solidColor.g);
   json += ",\"b\":" + String(solidColor.b);
   json += "}";
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
 
