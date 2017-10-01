@@ -14,6 +14,23 @@
 
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    - DS18B20:
+
+
+
+     + connect VCC (3.3V) to the appropriate DS18B20 pin (VDD)
+
+
+
+     + connect GND to the appopriate DS18B20 pin (GND)
+
+
+
+     + connect D4 to the DS18B20 data pin (DQ)
+
+
+
+     + connect a 4.7K resistor between DQ and VCC.
 */
 
 #define FASTLED_ESP8266_RAW_PIN_ORDER
@@ -26,6 +43,8 @@ extern "C" {
 
 #include <ESP8266WiFi.h>
 #include <DNSServer.h>
+#include <OneWire.h>
+#include <DallasTemperature.h> //on LostElements Git
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
 #include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager
@@ -37,22 +56,25 @@ extern "C" {
 
 
 
-const char* mdns_hostname = "ledsign";
+//const char* mdns_hostname = "ledsign";
 
-IPAddress ipmos(192, 168, 1, 76); // IP address of Mosquitto server should be loaded from Spiffs later
-//define set name of your sign
-String signname = "Room1"; //should be loaded from spiffs
-//define mqtt message names
-String thissign = "ledsign\\" + signname;
-String allsigns = "ledsign\\all";
+//IPAddress ipmos(192, 168, 1, 76); // IP address of Mosquitto server should be loaded from Spiffs later
+
 //Default Values for Mqtt
-char mqtt_server[40];
+char sign_name[5];
 char mqtt_port[6] = "8080";
+char mqtt_server[40];
+//char mqtt_ip1[3];
+//char mqtt_ip2[3];
+//char mqtt_ip3[3];
+//char mqtt_ip4[3];
 //flag for saving data
 bool shouldSaveConfig = false;
 
+
 std::unique_ptr<ESP8266WebServer> server;
 
+#define ONE_WIRE_BUS            D4      // DS18B20 pin
 #define DATA_PIN      D5     
 #define LED_TYPE      WS2812B
 #define COLOR_ORDER   GRB
@@ -71,6 +93,8 @@ std::unique_ptr<ESP8266WebServer> server;
 #define MILLI_AMPS         1500     // IMPORTANT: set here the max milli-Amps of your power supply 5V 2A = 2000
 #define AP_POWER_SAVE 	   1   // Set to 0 if you do not want the access point to shut down after 10 minutes of unuse
 #define FRAMES_PER_SECOND  120 // here you can control the speed. With the Access Point / Web Server the animations run a bit slower.
+
+#define BUFFER_SIZE 100 // for call back mqtt
 
 CRGB leds[NUM_LEDS];
 int lit = NUM_LEDS;
@@ -112,10 +136,82 @@ uint8_t power = 1;
 uint8_t glitter = 0;
 uint8_t big = 0;  // Activate led 0 as a "special" always lit slightly vibrating led, regardless of pattern
 
+
+//Temperature stuff
+
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature DS18B20(&oneWire);
+char temperatureString[6];
+const unsigned long fiveMinutes = 5 * 60 * 1000UL;
+static unsigned long lastSampleTime = 0 - fiveMinutes; // initialize such that a reading is due the first time through loop()
+
+
 //callback notifying us of the need to save config
 void saveConfigCallback () {
   Serial.println("Should save config");
   shouldSaveConfig = true;
+}
+
+float getTemperature() {
+
+  Serial.println ("Requesting DS18B20 temperature..."); 
+
+  float temp;
+
+  do {
+
+    DS18B20.requestTemperatures(); 
+
+    temp = DS18B20.getTempCByIndex(0);
+
+    delay(100);
+
+  } while (temp == 85.0 || temp == (-127.0));
+
+  return temp;
+
+}
+
+
+
+void sendtemp(){
+
+   unsigned long now = millis();
+
+  // function to send the temperature every five minutes rather than leavingb in the loop
+
+   if (now - lastSampleTime >= fiveMinutes)
+
+  {
+
+     float temperature = getTemperature();
+
+  // convert temperature to a string with two digits before the comma and 2 digits for precision
+
+  dtostrf(temperature, 2, 2, temperatureString);
+
+  // send temperature to the serial console
+
+  Serial.println ("Sending temperature: ");
+
+  Serial.println (temperatureString);
+
+  // send temperature to the MQTT topic every 5 minutes
+
+    // client.publish(roomtemp, temperatureString);
+
+  //lastSampleTime = now + fiveMinutes;
+
+  lastSampleTime += fiveMinutes;
+
+  //update websire here
+
+   // add code to take scroll temperatre 4 times then reset face to static  (temperature is 5 characters * 8  for each scroll
+
+  
+
+  }
+
 }
 
 void setup(void) {
@@ -150,6 +246,37 @@ void setup(void) {
 
   SPIFFS.begin();
   {
+    // Open Our config and read
+    if (SPIFFS.exists("/config.json")) {
+      //file exists, reading and loading
+      Serial.println("reading config file");
+      File configFile = SPIFFS.open("/config.json", "r");
+      if (configFile) {
+        Serial.println("opened config file");
+        size_t size = configFile.size();
+        // Allocate a buffer to store contents of the file.
+        std::unique_ptr<char[]> buf(new char[size]);
+
+        configFile.readBytes(buf.get(), size);
+        DynamicJsonBuffer jsonBuffer;
+        JsonObject& json = jsonBuffer.parseObject(buf.get());
+        json.printTo(Serial);
+        if (json.success()) {
+          Serial.println("\nparsed json");
+
+          strcpy(sign_name, json["sign_name"]);
+          strcpy(mqtt_server, json["mqtt_server"]);
+          strcpy(mqtt_port, json["mqtt_port"]);
+         // strcpy(mqtt_ip1, json["mqtt_ip1"]);
+         // strcpy(mqtt_ip2, json["mqtt_ip2"]);
+         // strcpy(mqtt_ip3, json["mqtt_ip3"]);
+         // strcpy(mqtt_ip4, json["mqtt_ip4"]);
+
+        } else {
+          Serial.println("failed to load json config");
+        }
+      }
+    }
     Dir dir = SPIFFS.openDir("/");
     while (dir.next()) {
       String fileName = dir.fileName();
@@ -158,18 +285,80 @@ void setup(void) {
     }
     Serial.printf("\n");
   }
+    // id/name placeholder/prompt default length
+  WiFiManagerParameter custom_sign_name("name", "Sign Name", sign_name, 5);
+  WiFiManagerParameter custom_mqtt_server("server", "mqtt server", mqtt_server, 40);
+  WiFiManagerParameter custom_mqtt_port("port", "mqtt port", mqtt_port, 6);
+  //WiFiManagerParameter custom_mqtt_ip1("ip1", "192", mqtt_ip1, 3);
+  //WiFiManagerParameter custom_mqtt_ip2("ip2", "1", mqtt_ip2, 3);
+  //WiFiManagerParameter custom_mqtt_ip3("ip3", "61", mqtt_ip3, 3);
+  //WiFiManagerParameter custom_mqtt_ip4("ip4", "5", mqtt_ip4, 3);
+  
   WiFiManager wifimanager;
-  //wifimanager.resetSettings();
+  //reset settings for testing only
+   wifimanager.resetSettings();
+  //set config save notify callback
+  wifimanager.setSaveConfigCallback(saveConfigCallback);
+  //add all your parameters here
+  wifimanager.addParameter(&custom_sign_name);
+  wifimanager.addParameter(&custom_mqtt_server);
+  wifimanager.addParameter(&custom_mqtt_port);
+  //wifimanager.addParameter(&custom_mqtt_ip1);
+  //wifimanager.addParameter(&custom_mqtt_ip2);
+  //wifimanager.addParameter(&custom_mqtt_ip3);
+  //wifimanager.addParameter(&custom_mqtt_ip4);
+ 
   wifimanager.autoConnect("AutoConnectAP");
    //if you get here you have connected to the WiFi
     Serial.println("connected...yeey :)");
+    //read updated parameters
+  strcpy(sign_name, custom_sign_name.getValue());
+  strcpy(mqtt_server, custom_mqtt_server.getValue());
+  strcpy(mqtt_port, custom_mqtt_port.getValue());
+  //strcpy(mqtt_ip1, custom_mqtt_ip1.getValue());
+  //strcpy(mqtt_ip2, custom_mqtt_ip2.getValue());
+  //strcpy(mqtt_ip3, custom_mqtt_ip3.getValue());
+  //strcpy(mqtt_ip4, custom_mqtt_ip4.getValue());
+  //save the custom parameters to FS
+  if (shouldSaveConfig) {
+    Serial.println("saving config");
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject& json = jsonBuffer.createObject();
+    json["sign_name"] = sign_name;
+    json["mqtt_server"] = mqtt_server;
+    json["mqtt_port"] = mqtt_port;
+    //json["mqtt_ip1"] = mqtt_ip1;
+    //json["mqtt_ip2"] = mqtt_ip2;
+    //json["mqtt_ip3"] = mqtt_ip3;
+    //json["mqtt_ip4"] = mqtt_ip4;
+
+    File configFile = SPIFFS.open("/config.json", "w");
+    if (!configFile) {
+      Serial.println("failed to open config file for writing");
+    }
+
+    json.printTo(Serial);
+    json.printTo(configFile);
+    configFile.close();
+    //end save
+  }
+
     server.reset(new ESP8266WebServer(WiFi.localIP(), 80));
     Serial.print("Connected! Open http://");
     Serial.print(WiFi.localIP());
     Serial.println(" in your browser");
-  WiFi.hostname(mdns_hostname);
+ // WiFi.hostname(mdns_hostname);
+   WiFi.hostname(sign_name);
+ // Start MDNS using spiffs defined name
+   MDNS.begin(sign_name);
+   MDNS.addService("http", "tcp", 80);
 
 
+//define set name of your sign
+//String signname = "Room1"; //should be loaded from spiffs
+//define mqtt message names
+String thissign = "ledsign\\" + String(sign_name);//signname;
+String allsigns = "ledsign\\all";
 
   server->on("/all", HTTP_GET, []() {
     sendAll();
@@ -368,6 +557,10 @@ void loop(void) {
 
   // insert a delay to keep the framerate modest
   FastLED.delay(1000 / FRAMES_PER_SECOND);
+
+  // This is where display temperature every five minutes
+
+ sendtemp();
 }
 
 
