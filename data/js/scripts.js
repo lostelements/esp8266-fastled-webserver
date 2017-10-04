@@ -122,6 +122,7 @@ function getAll() {
     $("#status").html("Connecting...");
     $("#inputBrightness").val(data.brightness);
     $("#spanBrightness").html(data.brightness);
+    $("#temp").html(data.temp);
 
     var hexString = rgbToHex(data.solidColor.r, data.solidColor.g, data.solidColor.b);
     ignoreColorChange = true;

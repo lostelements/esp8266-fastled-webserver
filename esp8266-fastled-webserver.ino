@@ -174,7 +174,7 @@ float getTemperature() {
 
 
 
-void sendtemp(){
+void sendTemp(){
 
    unsigned long now = millis();
 
@@ -205,6 +205,11 @@ void sendtemp(){
   lastSampleTime += fiveMinutes;
 
   //update websire here
+
+  //String json = String(temperature);
+  String json = String(temperatureString);
+  server->send(200, "text/json", json);
+  json = String();
 
    // add code to take scroll temperatre 4 times then reset face to static  (temperature is 5 characters * 8  for each scroll
 
@@ -368,6 +373,10 @@ String allsigns = "ledsign\\all";
     sendPower();
   });
 
+server->on("/temp", HTTP_GET, []() {
+    sendTemp();
+  });
+  
   server->on("/glitter", HTTP_GET, []() {
     sendGlitter();
   });
@@ -386,6 +395,12 @@ String allsigns = "ledsign\\all";
     String value = server->arg("value");
     setGlitter(value.toInt());
     sendGlitter();
+  });
+
+server->on("/temp", HTTP_POST, []() {
+    String value = server->arg("value");
+    //setTemp(value.toInt());
+    sendTemp();
   });
 
   server->on("/big", HTTP_POST, []() {
@@ -560,7 +575,7 @@ void loop(void) {
 
   // This is where display temperature every five minutes
 
- sendtemp();
+ sendTemp();
 }
 
 
@@ -601,6 +616,7 @@ void sendAll()
 
   json += "\"power\":" + String(power) + ",";
   json += "\"glitter\":" + String(glitter) + ",";
+  json += "\"temp\":" + String(temperatureString) + ",";
   json += "\"big\":" + String(big) + ",";
   json += "\"lit\":" + String(lit) + ",";
   json += "\"numleds\":" + String(NUM_LEDS) + ",";
@@ -650,6 +666,8 @@ void sendPower()
   server->send(200, "text/json", json);
   json = String();
 }
+
+
 
 void sendGlitter()
 {
