@@ -43,6 +43,7 @@ $(document).ready( function() {
     });
 
   getAll();
+  setInterval (getTemp,60*1000);
 });
 
 $("#btnRefresh").click(function() {
@@ -114,6 +115,13 @@ $(".btn-color").click(function() {
   $("#inputColor").minicolors('value', hexString);
   ignoreColorChange = false;
 });
+
+function getTemp() {
+  $.get(urlBase + "temp", function(data){
+    tempData = data;
+    $("#temp").html(data.temp);
+  });
+}
 
 function getAll() {
   $.get(urlBase + "all", function(data) {

@@ -180,9 +180,9 @@ void sendTemp(){
 
   // function to send the temperature every five minutes rather than leavingb in the loop
 
-   if (now - lastSampleTime >= fiveMinutes)
+   //if (now - lastSampleTime >= fiveMinutes)
 
-  {
+  //{
 
      float temperature = getTemperature();
 
@@ -197,6 +197,7 @@ void sendTemp(){
   Serial.println (temperatureString);
 
   // send temperature to the MQTT topic every 5 minutes
+  //send  temp to website on request from java every 5 minutes and then send to mqtt
 
     // client.publish(roomtemp, temperatureString);
 
@@ -207,7 +208,9 @@ void sendTemp(){
   //update websire here
 
   //String json = String(temperature);
-  String json = String(temperatureString);
+  String json = "{";
+  json += "\"temp\":" + String(temperatureString) + ",";
+  json += "}";
   server->send(200, "text/json", json);
   json = String();
 
@@ -215,7 +218,7 @@ void sendTemp(){
 
   
 
-  }
+  //}
 
 }
 
@@ -575,7 +578,7 @@ void loop(void) {
 
   // This is where display temperature every five minutes
 
- sendTemp();
+ //sendTemp();
 }
 
 
