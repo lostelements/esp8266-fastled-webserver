@@ -209,12 +209,13 @@ void sendTemp(){
 
   //String json = String(temperature);
   String json = "{";
-  json += "\"temp\":" + String(temperatureString) + ",";
+  json += "\"temp\":" + String(temperatureString);
   json += "}";
   server->send(200, "text/json", json);
+  Serial.println (json);
   json = String();
 
-   // add code to take scroll temperatre 4 times then reset face to static  (temperature is 5 characters * 8  for each scroll
+  
 
   
 
@@ -619,7 +620,8 @@ void sendAll()
 
   json += "\"power\":" + String(power) + ",";
   json += "\"glitter\":" + String(glitter) + ",";
-  json += "\"temp\":" + String(temperatureString) + ",";
+  json += "\"temp\":\"" + String(temperatureString) + "\",";
+  json += "\"signname\":\"" + String(sign_name) + "\",";
   json += "\"big\":" + String(big) + ",";
   json += "\"lit\":" + String(lit) + ",";
   json += "\"numleds\":" + String(NUM_LEDS) + ",";

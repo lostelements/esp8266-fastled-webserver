@@ -119,7 +119,7 @@ $(".btn-color").click(function() {
 function getTemp() {
   $.get(urlBase + "temp", function(data){
     tempData = data;
-    $("#temp").html(data.temp);
+    $("#temperature").html(data.temp);
   });
 }
 
@@ -130,7 +130,8 @@ function getAll() {
     $("#status").html("Connecting...");
     $("#inputBrightness").val(data.brightness);
     $("#spanBrightness").html(data.brightness);
-    $("#temp").html(data.temp);
+    $("#temperature").html(data.temp);
+    $("#signname").html(data.signname);
 
     var hexString = rgbToHex(data.solidColor.r, data.solidColor.g, data.solidColor.b);
     ignoreColorChange = true;
