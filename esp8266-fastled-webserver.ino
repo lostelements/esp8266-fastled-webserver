@@ -236,7 +236,8 @@ void sendTemp(){
   lastSampleTime += fiveMinutes;
   //update website here
   String json = "{";
-  json += "\"temp\":" + String(temperatureString);
+  json += "\"temp\":" + String(temperatureString) +",";
+  json += "\"tempcolor\":\"blue\"";
   json += "}";
   server->send(200, "text/json", json);
   Serial.println (json);
@@ -658,6 +659,7 @@ void loadSettings()
 
 void sendAll()
 {
+  
   String json = "{";
 
   json += "\"power\":" + String(power) + ",";

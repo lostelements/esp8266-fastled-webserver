@@ -43,6 +43,7 @@ $(document).ready( function() {
     });
 
   getAll();
+  getTemp();
   setInterval (getTemp,60*1000);
 });
 
@@ -120,6 +121,7 @@ function getTemp() {
   $.get(urlBase + "temp", function(data){
     tempData = data;
     $("#temperature").html(data.temp);
+    $("#tempcss").css('color',data.tempcolor);
   });
 }
 

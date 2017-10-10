@@ -278,3 +278,5 @@
 .btn-group-nobreak {
    display: flex;
 }
+/* Temperature intial setting */
+#tempcss {font-size:25px;font-weight:bold;color:darkorange;}
