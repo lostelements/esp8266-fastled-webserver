@@ -61,7 +61,7 @@ extern "C" {
 //IPAddress ipmos(192, 168, 1, 76); // IP address of Mosquitto server should be loaded from Spiffs later
 
 //Default Values for Mqtt
-char sign_name[5];
+char sign_name[10]; //name no spaces or special charcters
 char mqtt_port[6] = "8080";
 char mqtt_server[40];
 //char mqtt_ip1[3];
@@ -75,7 +75,7 @@ bool shouldSaveConfig = false;
 std::unique_ptr<ESP8266WebServer> server;
 
 #define ONE_WIRE_BUS            D4      // DS18B20 pin
-#define DATA_PIN      D5     
+#define DATA_PIN      D5     // Leds pin
 #define LED_TYPE      WS2812B
 #define COLOR_ORDER   GRB
 // Set your number of leds here!
@@ -110,6 +110,24 @@ uint8_t brightness = brightnessMap[brightnessIndex];
 
 // ten seconds per color palette makes a good demo
 // 20-120 is better for deployment
+
+uint8_t secondsPerPalette = 10;
+
+
+// COOLING: How much does the air cool as it rises?
+// Less cooling = taller flames.  More cooling = shorter flames.
+// Default 50, suggested range 20-100
+uint8_t cooling = 49;
+
+// SPARKING: What chance (out of 255) is there that a new spark will be lit?
+// Higher chance = more roaring fire.  Lower chance = more flickery fire.
+// Default 120, suggested range 50-200.
+uint8_t sparking = 60;
+uint8_t speed = 30;
+
+
+// ten seconds per color palette makes a good demo
+// 20-120 is better for deployment
 #define SECONDS_PER_PALETTE 10
 
 ///////////////////////////////////////////////////////////////////////
@@ -125,12 +143,38 @@ uint8_t gCurrentPaletteNumber = 0;
 
 CRGBPalette16 gCurrentPalette( CRGB::Black);
 CRGBPalette16 gTargetPalette( gGradientPalettes[0] );
-
+CRGBPalette16 IceColors_p = CRGBPalette16(CRGB::Black, CRGB::Blue, CRGB::Aqua, CRGB::White);
 uint8_t currentPatternIndex = 0; // Index number of which pattern is current
+uint8_t autoplay = 0;
+uint8_t autoplayDuration = 10;
+unsigned long autoPlayTimeout = 0;
+
+
 uint8_t currentPaletteIndex = 0;
 uint8_t gHue = 0; // rotating "base color" used by many of the patterns
 
 CRGB solidColor = CRGB::Black;
+// scale the brightness of all pixels down
+
+void dimAll(byte value)
+{
+  for (int i = 0; i < NUM_LEDS; i++) {
+    leds[i].nscale8(value);
+  }
+}
+
+
+
+typedef void (*Pattern)();
+typedef Pattern PatternList[];
+typedef struct {
+  Pattern pattern;
+  String name;
+} PatternAndName;
+typedef PatternAndName PatternAndNameList[];
+
+#include "Twinkles.h"
+#include "TwinkleFOX.h"
 
 uint8_t power = 1;
 uint8_t glitter = 0;
@@ -175,50 +219,28 @@ float getTemperature() {
 
 
 void sendTemp(){
-
    unsigned long now = millis();
-
   // function to send the temperature every five minutes rather than leavingb in the loop
-
    //if (now - lastSampleTime >= fiveMinutes)
-
   //{
-
      float temperature = getTemperature();
-
   // convert temperature to a string with two digits before the comma and 2 digits for precision
-
   dtostrf(temperature, 2, 2, temperatureString);
-
   // send temperature to the serial console
-
   Serial.println ("Sending temperature: ");
-
   Serial.println (temperatureString);
-
   // send temperature to the MQTT topic every 5 minutes
   //send  temp to website on request from java every 5 minutes and then send to mqtt
-
     // client.publish(roomtemp, temperatureString);
-
   //lastSampleTime = now + fiveMinutes;
-
   lastSampleTime += fiveMinutes;
-
-  //update websire here
-
-  //String json = String(temperature);
+  //update website here
   String json = "{";
   json += "\"temp\":" + String(temperatureString);
   json += "}";
   server->send(200, "text/json", json);
   Serial.println (json);
-  json = String();
-
-  
-
-  
-
+  json = String();  
   //}
 
 }
@@ -474,10 +496,10 @@ server->on("/temp", HTTP_POST, []() {
 }
 
 typedef void (*Pattern)();
-typedef struct {
-  Pattern pattern;
-  String name;
-} PatternAndName;
+//typedef struct {
+//  Pattern pattern;
+//  String name;
+//} PatternAndName;
 typedef PatternAndName PatternAndNameList[];
 
 // List of patterns to cycle through.  Each is defined as a separate function below.
@@ -485,6 +507,27 @@ PatternAndNameList patterns = {
   { colorwaves, "Color Waves" },
   { palettetest, "Palette Test" },
   { pride, "Pride" },
+  // twinkle patterns
+  { rainbowTwinkles,        "Rainbow Twinkles" },
+  { snowTwinkles,           "Snow Twinkles" },
+  { cloudTwinkles,          "Cloud Twinkles" },
+  { incandescentTwinkles,   "Incandescent Twinkles" },
+  // TwinkleFOX patterns
+  { retroC9Twinkles,        "Retro C9 Twinkles" },
+  { redWhiteTwinkles,       "Red & White Twinkles" },
+  { blueWhiteTwinkles,      "Blue & White Twinkles" },
+  { redGreenWhiteTwinkles,  "Red, Green & White Twinkles" },
+  { fairyLightTwinkles,     "Fairy Light Twinkles" },
+  { snow2Twinkles,          "Snow 2 Twinkles" },
+  { hollyTwinkles,          "Holly Twinkles" },
+  { iceTwinkles,            "Ice Twinkles" },
+  { partyTwinkles,          "Party Twinkles" },
+  { forestTwinkles,         "Forest Twinkles" },
+  { lavaTwinkles,           "Lava Twinkles" },
+  { fireTwinkles,           "Fire Twinkles" },
+  { cloud2Twinkles,         "Cloud 2 Twinkles" },
+  { oceanTwinkles,          "Ocean Twinkles" },
+  //Standard Patterns
   { rainbow, "Rainbow" },
   { rainbowWithGlitter, "Rainbow With Glitter" },
   { confetti, "Confetti" },
@@ -493,6 +536,8 @@ PatternAndNameList patterns = {
   { bpm, "BPM" },
   { jozef, "Jozef's pattern" },
   { police, "Da Police" },  
+  { fire,                   "Fire" },
+  { water,                  "Water" },
   { showSolidColor, "Solid Color" },
 };
 
@@ -577,9 +622,6 @@ void loop(void) {
   // insert a delay to keep the framerate modest
   FastLED.delay(1000 / FRAMES_PER_SECOND);
 
-  // This is where display temperature every five minutes
-
- //sendTemp();
 }
 
 
@@ -863,6 +905,15 @@ void sinelon()
   }
 }
 
+void fire()
+{
+  heatMap(HeatColors_p, true);
+}
+
+void water()
+{
+  heatMap(IceColors_p, false);
+}
 
 // Pattern made for someone named Jozef. This pattern slowly lights and fades random 
 // numbers of leds
@@ -961,6 +1012,118 @@ void pride() {
     nblend(leds[i], newcolor, 64);
   }
 }
+
+void radialPaletteShift()
+
+{
+
+  for (uint8_t i = 0; i < NUM_LEDS; i++) {
+
+    // leds[i] = ColorFromPalette( gCurrentPalette, gHue + sin8(i*16), brightness);
+
+    leds[i] = ColorFromPalette(gCurrentPalette, i + gHue, 255, LINEARBLEND);
+
+  }
+
+}
+
+
+
+// based on FastLED example Fire2012WithPalette: https://github.com/FastLED/FastLED/blob/master/examples/Fire2012WithPalette/Fire2012WithPalette.ino
+
+void heatMap(CRGBPalette16 palette, bool up)
+
+{
+
+  fill_solid(leds, NUM_LEDS, CRGB::Black);
+
+
+
+  // Add entropy to random number generator; we use a lot of it.
+
+  random16_add_entropy(random(256));
+
+
+
+  // Array of temperature readings at each simulation cell
+
+  static byte heat[256];
+
+
+
+  byte colorindex;
+
+
+
+  // Step 1.  Cool down every cell a little
+
+  for ( uint16_t i = 0; i < NUM_LEDS; i++) {
+
+    heat[i] = qsub8( heat[i],  random8(0, ((cooling * 10) / NUM_LEDS) + 2));
+
+  }
+
+
+
+  // Step 2.  Heat from each cell drifts 'up' and diffuses a little
+
+  for ( uint16_t k = NUM_LEDS - 1; k >= 2; k--) {
+
+    heat[k] = (heat[k - 1] + heat[k - 2] + heat[k - 2] ) / 3;
+
+  }
+
+
+
+  // Step 3.  Randomly ignite new 'sparks' of heat near the bottom
+
+  if ( random8() < sparking ) {
+
+    int y = random8(7);
+
+    heat[y] = qadd8( heat[y], random8(160, 255) );
+
+  }
+
+
+
+  // Step 4.  Map from heat cells to LED colors
+
+  for ( uint16_t j = 0; j < NUM_LEDS; j++) {
+
+    // Scale the heat value from 0-255 down to 0-240
+
+    // for best results with color palettes.
+
+    colorindex = scale8(heat[j], 190);
+
+
+
+    CRGB color = ColorFromPalette(palette, colorindex);
+
+
+
+    if (up) {
+
+      leds[j] = color;
+
+    }
+
+    else {
+
+      leds[(NUM_LEDS - 1) - j] = color;
+
+    }
+
+  }
+
+}
+
+
+
+
+
+
 
 // ColorWavesWithPalettes by Mark Kriegsman: https://gist.github.com/kriegsman/8281905786e8b2632aeb
 // This function draws color waves with an ever-changing,
