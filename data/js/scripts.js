@@ -122,6 +122,11 @@ function getTemp() {
     tempData = data;
     $("#temperature").html(data.temp);
     $("#tempcss").css('color',data.tempcolor);
+    if (data.tempcolor == "darkred"){
+      function setPattern(1);
+    } else if (data.tempcolor =="lightskyblue"){
+      function setPattern(2);
+    }
   });
 }
 

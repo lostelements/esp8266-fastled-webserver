@@ -237,7 +237,15 @@ void sendTemp(){
   //update website here
   String json = "{";
   json += "\"temp\":" + String(temperatureString) +",";
-  json += "\"tempcolor\":\"blue\"";
+  if (temperature <= 15.0) {
+    json += "\"tempcolor\":\"lightskyblue\"";
+  }
+  else if (temperature >= 25) {
+    json += "\"tempcolor\":\"darkred\"";
+  }
+  else {
+  json += "\"tempcolor\":\"darkorange\"";
+  }
   json += "}";
   server->send(200, "text/json", json);
   Serial.println (json);
@@ -505,6 +513,8 @@ typedef PatternAndName PatternAndNameList[];
 
 // List of patterns to cycle through.  Each is defined as a separate function below.
 PatternAndNameList patterns = {
+  { fire,                   "Fire" },
+  { water,                  "Water" },
   { colorwaves, "Color Waves" },
   { palettetest, "Palette Test" },
   { pride, "Pride" },
@@ -537,8 +547,6 @@ PatternAndNameList patterns = {
   { bpm, "BPM" },
   { jozef, "Jozef's pattern" },
   { police, "Da Police" },  
-  { fire,                   "Fire" },
-  { water,                  "Water" },
   { showSolidColor, "Solid Color" },
 };
 
