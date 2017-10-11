@@ -240,7 +240,7 @@ void sendTemp(){
   if (temperature <= 15.0) {
     json += "\"tempcolor\":\"lightskyblue\"";
   }
-  else if (temperature >= 25) {
+  else if (temperature >= 25.0) {
     json += "\"tempcolor\":\"darkred\"";
   }
   else {
@@ -326,7 +326,7 @@ void setup(void) {
     Serial.printf("\n");
   }
     // id/name placeholder/prompt default length
-  WiFiManagerParameter custom_sign_name("name", "Sign Name", sign_name, 5);
+  WiFiManagerParameter custom_sign_name("name", "Sign Name", sign_name, 10);
   WiFiManagerParameter custom_mqtt_server("server", "mqtt server", mqtt_server, 40);
   WiFiManagerParameter custom_mqtt_port("port", "mqtt port", mqtt_port, 6);
   //WiFiManagerParameter custom_mqtt_ip1("ip1", "192", mqtt_ip1, 3);
@@ -336,7 +336,7 @@ void setup(void) {
   
   WiFiManager wifimanager;
   //reset settings for testing only
-   wifimanager.resetSettings();
+   //wifimanager.resetSettings();
   //set config save notify callback
   wifimanager.setSaveConfigCallback(saveConfigCallback);
   //add all your parameters here

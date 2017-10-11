@@ -123,9 +123,9 @@ function getTemp() {
     $("#temperature").html(data.temp);
     $("#tempcss").css('color',data.tempcolor);
     if (data.tempcolor == "darkred"){
-      function setPattern(1);
+      setPattern(0);
     } else if (data.tempcolor =="lightskyblue"){
-      function setPattern(2);
+      setPattern(1);
     }
   });
 }
