@@ -43,6 +43,8 @@ $(document).ready( function() {
     });
 
   getAll();
+  getTemp();
+  setInterval (getTemp,60*1000);
 });
 
 $("#btnRefresh").click(function() {
@@ -115,6 +117,19 @@ $(".btn-color").click(function() {
   ignoreColorChange = false;
 });
 
+function getTemp() {
+  $.get(urlBase + "temp", function(data){
+    tempData = data;
+    $("#temperature").html(data.temp);
+    $("#tempcss").css('color',data.tempcolor);
+    if (data.tempcolor == "darkred"){
+      setPattern(0);
+    } else if (data.tempcolor =="lightskyblue"){
+      setPattern(1);
+    }
+  });
+}
+
 function getAll() {
   $.get(urlBase + "all", function(data) {
     allData = data;
@@ -122,6 +137,8 @@ function getAll() {
     $("#status").html("Connecting...");
     $("#inputBrightness").val(data.brightness);
     $("#spanBrightness").html(data.brightness);
+    $("#temperature").html(data.temp);
+    $("#signname").html(data.signname);
 
     var hexString = rgbToHex(data.solidColor.r, data.solidColor.g, data.solidColor.b);
     ignoreColorChange = true;

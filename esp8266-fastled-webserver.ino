@@ -14,6 +14,23 @@
 
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    - DS18B20:
+
+
+
+     + connect VCC (3.3V) to the appropriate DS18B20 pin (VDD)
+
+
+
+     + connect GND to the appopriate DS18B20 pin (GND)
+
+
+
+     + connect D4 to the DS18B20 data pin (DQ)
+
+
+
+     + connect a 4.7K resistor between DQ and VCC.
 */
 
 #define FASTLED_ESP8266_RAW_PIN_ORDER
@@ -25,29 +42,44 @@ extern "C" {
 }
 
 #include <ESP8266WiFi.h>
+#include <DNSServer.h>
+#include <OneWire.h>
+#include <DallasTemperature.h> //on LostElements Git
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
+#include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager
 #include <FS.h>
 #include <EEPROM.h>
 #include "GradientPalettes.h"
+#include <ArduinoJson.h>          //https://github.com/bblanchon/ArduinoJson
+#include <PubSubClient.h> //on Lostelemnts Git
 
-const bool apMode = true;
 
-// AP mode password
-const char WiFiAPPSK[] = "";
 
-// Wi-Fi network to connect to (if not in AP mode)
-const char* ssid = "";
-const char* password = "";
-const char* mdns_hostname = "ledserver";
+//const char* mdns_hostname = "ledsign";
 
-ESP8266WebServer server(80);
+//IPAddress ipmos(192, 168, 1, 76); // IP address of Mosquitto server should be loaded from Spiffs later
 
-#define DATA_PIN      D5     
+//Default Values for Mqtt
+char sign_name[10]; //name no spaces or special charcters
+char mqtt_port[6] = "8080";
+char mqtt_server[40];
+//char mqtt_ip1[3];
+//char mqtt_ip2[3];
+//char mqtt_ip3[3];
+//char mqtt_ip4[3];
+//flag for saving data
+bool shouldSaveConfig = false;
+
+
+std::unique_ptr<ESP8266WebServer> server;
+
+#define ONE_WIRE_BUS            D4      // DS18B20 pin
+#define DATA_PIN      D5     // Leds pin
 #define LED_TYPE      WS2812B
-#define COLOR_ORDER   RGB
+#define COLOR_ORDER   GRB
 // Set your number of leds here!
-#define NUM_LEDS      4
+#define NUM_LEDS      8
 
 #define EEPROM_BRIGHTNESS      0
 #define EEPROM_PATTERN      1
@@ -62,6 +94,8 @@ ESP8266WebServer server(80);
 #define AP_POWER_SAVE 	   1   // Set to 0 if you do not want the access point to shut down after 10 minutes of unuse
 #define FRAMES_PER_SECOND  120 // here you can control the speed. With the Access Point / Web Server the animations run a bit slower.
 
+#define BUFFER_SIZE 100 // for call back mqtt
+
 CRGB leds[NUM_LEDS];
 int lit = NUM_LEDS;
 
@@ -73,6 +107,24 @@ int brightnessIndex = 0;
 uint8_t brightness = brightnessMap[brightnessIndex];
 
 #define ARRAY_SIZE(A) (sizeof(A) / sizeof((A)[0]))
+
+// ten seconds per color palette makes a good demo
+// 20-120 is better for deployment
+
+uint8_t secondsPerPalette = 10;
+
+
+// COOLING: How much does the air cool as it rises?
+// Less cooling = taller flames.  More cooling = shorter flames.
+// Default 50, suggested range 20-100
+uint8_t cooling = 49;
+
+// SPARKING: What chance (out of 255) is there that a new spark will be lit?
+// Higher chance = more roaring fire.  Lower chance = more flickery fire.
+// Default 120, suggested range 50-200.
+uint8_t sparking = 60;
+uint8_t speed = 30;
+
 
 // ten seconds per color palette makes a good demo
 // 20-120 is better for deployment
@@ -91,21 +143,122 @@ uint8_t gCurrentPaletteNumber = 0;
 
 CRGBPalette16 gCurrentPalette( CRGB::Black);
 CRGBPalette16 gTargetPalette( gGradientPalettes[0] );
-
+CRGBPalette16 IceColors_p = CRGBPalette16(CRGB::Black, CRGB::Blue, CRGB::Aqua, CRGB::White);
 uint8_t currentPatternIndex = 0; // Index number of which pattern is current
+uint8_t autoplay = 0;
+uint8_t autoplayDuration = 10;
+unsigned long autoPlayTimeout = 0;
+
+
 uint8_t currentPaletteIndex = 0;
 uint8_t gHue = 0; // rotating "base color" used by many of the patterns
 
 CRGB solidColor = CRGB::Black;
+// scale the brightness of all pixels down
+
+void dimAll(byte value)
+{
+  for (int i = 0; i < NUM_LEDS; i++) {
+    leds[i].nscale8(value);
+  }
+}
+
+
+
+typedef void (*Pattern)();
+typedef Pattern PatternList[];
+typedef struct {
+  Pattern pattern;
+  String name;
+} PatternAndName;
+typedef PatternAndName PatternAndNameList[];
+
+#include "Twinkles.h"
+#include "TwinkleFOX.h"
 
 uint8_t power = 1;
 uint8_t glitter = 0;
 uint8_t big = 0;  // Activate led 0 as a "special" always lit slightly vibrating led, regardless of pattern
 
+
+//Temperature stuff
+
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature DS18B20(&oneWire);
+char temperatureString[6];
+const unsigned long fiveMinutes = 5 * 60 * 1000UL;
+static unsigned long lastSampleTime = 0 - fiveMinutes; // initialize such that a reading is due the first time through loop()
+
+
+//callback notifying us of the need to save config
+void saveConfigCallback () {
+  Serial.println("Should save config");
+  shouldSaveConfig = true;
+}
+
+float getTemperature() {
+
+  Serial.println ("Requesting DS18B20 temperature..."); 
+
+  float temp;
+
+  do {
+
+    DS18B20.requestTemperatures(); 
+
+    temp = DS18B20.getTempCByIndex(0);
+
+    delay(100);
+
+  } while (temp == 85.0 || temp == (-127.0));
+
+  return temp;
+
+}
+
+
+
+void sendTemp(){
+   unsigned long now = millis();
+  // function to send the temperature every five minutes rather than leavingb in the loop
+   //if (now - lastSampleTime >= fiveMinutes)
+  //{
+     float temperature = getTemperature();
+  // convert temperature to a string with two digits before the comma and 2 digits for precision
+  dtostrf(temperature, 2, 2, temperatureString);
+  // send temperature to the serial console
+  Serial.println ("Sending temperature: ");
+  Serial.println (temperatureString);
+  // send temperature to the MQTT topic every 5 minutes
+  //send  temp to website on request from java every 5 minutes and then send to mqtt
+    // client.publish(roomtemp, temperatureString);
+  //lastSampleTime = now + fiveMinutes;
+  lastSampleTime += fiveMinutes;
+  //update website here
+  String json = "{";
+  json += "\"temp\":" + String(temperatureString) +",";
+  if (temperature <= 15.0) {
+    json += "\"tempcolor\":\"lightskyblue\"";
+  }
+  else if (temperature >= 25.0) {
+    json += "\"tempcolor\":\"darkred\"";
+  }
+  else {
+  json += "\"tempcolor\":\"darkorange\"";
+  }
+  json += "}";
+  server->send(200, "text/json", json);
+  Serial.println (json);
+  json = String();  
+  //}
+
+}
+
 void setup(void) {
   Serial.begin(115200);
   delay(100);
   Serial.setDebugOutput(true);
+  
 
   FastLED.addLeds<LED_TYPE, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS);         // for WS2812 (Neopixel)
   //FastLED.addLeds<LED_TYPE,DATA_PIN,CLK_PIN,COLOR_ORDER>(leds, NUM_LEDS); // for APA102 (Dotstar)
@@ -133,6 +286,37 @@ void setup(void) {
 
   SPIFFS.begin();
   {
+    // Open Our config and read
+    if (SPIFFS.exists("/config.json")) {
+      //file exists, reading and loading
+      Serial.println("reading config file");
+      File configFile = SPIFFS.open("/config.json", "r");
+      if (configFile) {
+        Serial.println("opened config file");
+        size_t size = configFile.size();
+        // Allocate a buffer to store contents of the file.
+        std::unique_ptr<char[]> buf(new char[size]);
+
+        configFile.readBytes(buf.get(), size);
+        DynamicJsonBuffer jsonBuffer;
+        JsonObject& json = jsonBuffer.parseObject(buf.get());
+        json.printTo(Serial);
+        if (json.success()) {
+          Serial.println("\nparsed json");
+
+          strcpy(sign_name, json["sign_name"]);
+          strcpy(mqtt_server, json["mqtt_server"]);
+          strcpy(mqtt_port, json["mqtt_port"]);
+         // strcpy(mqtt_ip1, json["mqtt_ip1"]);
+         // strcpy(mqtt_ip2, json["mqtt_ip2"]);
+         // strcpy(mqtt_ip3, json["mqtt_ip3"]);
+         // strcpy(mqtt_ip4, json["mqtt_ip4"]);
+
+        } else {
+          Serial.println("failed to load json config");
+        }
+      }
+    }
     Dir dir = SPIFFS.openDir("/");
     while (dir.next()) {
       String fileName = dir.fileName();
@@ -141,158 +325,220 @@ void setup(void) {
     }
     Serial.printf("\n");
   }
+    // id/name placeholder/prompt default length
+  WiFiManagerParameter custom_sign_name("name", "Sign Name", sign_name, 10);
+  WiFiManagerParameter custom_mqtt_server("server", "mqtt server", mqtt_server, 40);
+  WiFiManagerParameter custom_mqtt_port("port", "mqtt port", mqtt_port, 6);
+  //WiFiManagerParameter custom_mqtt_ip1("ip1", "192", mqtt_ip1, 3);
+  //WiFiManagerParameter custom_mqtt_ip2("ip2", "1", mqtt_ip2, 3);
+  //WiFiManagerParameter custom_mqtt_ip3("ip3", "61", mqtt_ip3, 3);
+  //WiFiManagerParameter custom_mqtt_ip4("ip4", "5", mqtt_ip4, 3);
   
-  WiFi.hostname(mdns_hostname);
+  WiFiManager wifimanager;
+  //reset settings for testing only
+   //wifimanager.resetSettings();
+  //set config save notify callback
+  wifimanager.setSaveConfigCallback(saveConfigCallback);
+  //add all your parameters here
+  wifimanager.addParameter(&custom_sign_name);
+  wifimanager.addParameter(&custom_mqtt_server);
+  wifimanager.addParameter(&custom_mqtt_port);
+  //wifimanager.addParameter(&custom_mqtt_ip1);
+  //wifimanager.addParameter(&custom_mqtt_ip2);
+  //wifimanager.addParameter(&custom_mqtt_ip3);
+  //wifimanager.addParameter(&custom_mqtt_ip4);
+ 
+  wifimanager.autoConnect("AutoConnectAP");
+   //if you get here you have connected to the WiFi
+    Serial.println("connected...yeey :)");
+    //read updated parameters
+  strcpy(sign_name, custom_sign_name.getValue());
+  strcpy(mqtt_server, custom_mqtt_server.getValue());
+  strcpy(mqtt_port, custom_mqtt_port.getValue());
+  //strcpy(mqtt_ip1, custom_mqtt_ip1.getValue());
+  //strcpy(mqtt_ip2, custom_mqtt_ip2.getValue());
+  //strcpy(mqtt_ip3, custom_mqtt_ip3.getValue());
+  //strcpy(mqtt_ip4, custom_mqtt_ip4.getValue());
+  //save the custom parameters to FS
+  if (shouldSaveConfig) {
+    Serial.println("saving config");
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject& json = jsonBuffer.createObject();
+    json["sign_name"] = sign_name;
+    json["mqtt_server"] = mqtt_server;
+    json["mqtt_port"] = mqtt_port;
+    //json["mqtt_ip1"] = mqtt_ip1;
+    //json["mqtt_ip2"] = mqtt_ip2;
+    //json["mqtt_ip3"] = mqtt_ip3;
+    //json["mqtt_ip4"] = mqtt_ip4;
 
-  if (apMode) {
-    WiFi.mode(WIFI_AP);
-
-    // Do a little work to get a unique-ish name. Append the
-    // last two bytes of the MAC (HEX'd) to "Thing-":
-    uint8_t mac[WL_MAC_ADDR_LENGTH];
-    WiFi.softAPmacAddress(mac);
-    String macID = String(mac[WL_MAC_ADDR_LENGTH - 2], HEX) +
-                   String(mac[WL_MAC_ADDR_LENGTH - 1], HEX);
-    macID.toUpperCase();
-    String AP_NameString = "Ledserver " + macID;
-
-    char AP_NameChar[AP_NameString.length() + 1];
-    memset(AP_NameChar, 0, AP_NameString.length() + 1);
-
-    for (int i = 0; i < AP_NameString.length(); i++) {
-      AP_NameChar[i] = AP_NameString.charAt(i);
+    File configFile = SPIFFS.open("/config.json", "w");
+    if (!configFile) {
+      Serial.println("failed to open config file for writing");
     }
 
-    WiFi.softAP(AP_NameChar, WiFiAPPSK);
-    MDNS.begin(mdns_hostname);
-    MDNS.addService("http", "tcp", 80);
+    json.printTo(Serial);
+    json.printTo(configFile);
+    configFile.close();
+    //end save
+  }
 
-    Serial.printf("Connect to Wi-Fi access point: %s\n", AP_NameChar);
-    Serial.println("and open http://192.168.4.1 or http://" + String(mdns_hostname) + ".local in your browser");
-  } else {
-    WiFi.mode(WIFI_STA);
-    Serial.printf("Connecting to %s\n", ssid);
-    if (String(WiFi.SSID()) != String(ssid)) {
-      Serial.println("I'm not sure what is going on here, but you need this message");
-      WiFi.begin(ssid, password);
-    }
-    while (WiFi.status() != WL_CONNECTED) {
-      delay(500);
-      Serial.print(".");
-    }
+    server.reset(new ESP8266WebServer(WiFi.localIP(), 80));
     Serial.print("Connected! Open http://");
     Serial.print(WiFi.localIP());
     Serial.println(" in your browser");
-  }
+ // WiFi.hostname(mdns_hostname);
+   WiFi.hostname(sign_name);
+ // Start MDNS using spiffs defined name
+   MDNS.begin(sign_name);
+   MDNS.addService("http", "tcp", 80);
 
-  //  server.serveStatic("/", SPIFFS, "/index.htm"); // ,"max-age=86400"
 
-  server.on("/all", HTTP_GET, []() {
+//define set name of your sign
+//String signname = "Room1"; //should be loaded from spiffs
+//define mqtt message names
+String thissign = "ledsign\\" + String(sign_name);//signname;
+String allsigns = "ledsign\\all";
+
+  server->on("/all", HTTP_GET, []() {
     sendAll();
   });
 
-  server.on("/power", HTTP_GET, []() {
+  server->on("/power", HTTP_GET, []() {
     sendPower();
   });
 
-  server.on("/glitter", HTTP_GET, []() {
+server->on("/temp", HTTP_GET, []() {
+    sendTemp();
+  });
+  
+  server->on("/glitter", HTTP_GET, []() {
     sendGlitter();
   });
 
-  server.on("/big", HTTP_GET, []() {
+  server->on("/big", HTTP_GET, []() {
     sendBig();
   });
   
-  server.on("/power", HTTP_POST, []() {
-    String value = server.arg("value");
+  server->on("/power", HTTP_POST, []() {
+    String value = server->arg("value");
     setPower(value.toInt());
     sendPower();
   });
 
-  server.on("/glitter", HTTP_POST, []() {
-    String value = server.arg("value");
+  server->on("/glitter", HTTP_POST, []() {
+    String value = server->arg("value");
     setGlitter(value.toInt());
     sendGlitter();
   });
 
-  server.on("/big", HTTP_POST, []() {
-    String value = server.arg("value");
+server->on("/temp", HTTP_POST, []() {
+    String value = server->arg("value");
+    //setTemp(value.toInt());
+    sendTemp();
+  });
+
+  server->on("/big", HTTP_POST, []() {
+    String value = server->arg("value");
     setBig(value.toInt());
     sendBig();
   });
 
-  server.on("/solidColor", HTTP_GET, []() {
+  server->on("/solidColor", HTTP_GET, []() {
     sendSolidColor();
   });
 
-  server.on("/solidColor", HTTP_POST, []() {
-    String r = server.arg("r");
-    String g = server.arg("g");
-    String b = server.arg("b");
+  server->on("/solidColor", HTTP_POST, []() {
+    String r = server->arg("r");
+    String g = server->arg("g");
+    String b = server->arg("b");
     setSolidColor(r.toInt(), g.toInt(), b.toInt());
     sendSolidColor();
   });
 
-  server.on("/pattern", HTTP_GET, []() {
+  server->on("/pattern", HTTP_GET, []() {
     sendPattern();
   });
 
-  server.on("/pattern", HTTP_POST, []() {
-    String value = server.arg("value");
+  server->on("/pattern", HTTP_POST, []() {
+    String value = server->arg("value");
     setPattern(value.toInt());
     sendPattern();
   });
   
-  server.on("/lit", HTTP_POST, []() {
-    String value = server.arg("value");
+  server->on("/lit", HTTP_POST, []() {
+    String value = server->arg("value");
     setLit(value.toInt());
     sendLit();
   });
 
-  server.on("/brightness", HTTP_GET, []() {
+  server->on("/brightness", HTTP_GET, []() {
     sendBrightness();
   });
 
-  server.on("/brightness", HTTP_POST, []() {
-    String value = server.arg("value");
+  server->on("/brightness", HTTP_POST, []() {
+    String value = server->arg("value");
     setBrightness(value.toInt());
     sendBrightness();
   });
 
-  server.on("/palette", HTTP_GET, []() {
+  server->on("/palette", HTTP_GET, []() {
     sendPalette();
   });
 
-  server.on("/palette", HTTP_POST, []() {
-    String value = server.arg("value");
+  server->on("/palette", HTTP_POST, []() {
+    String value = server->arg("value");
     setPalette(value.toInt());
     sendPalette();
   });
 
-  server.serveStatic("/index.htm", SPIFFS, "/index.htm");
-  server.serveStatic("/fonts", SPIFFS, "/fonts", "max-age=86400");
-  server.serveStatic("/js", SPIFFS, "/js");
-  server.serveStatic("/css", SPIFFS, "/css", "max-age=86400");
-  server.serveStatic("/images", SPIFFS, "/images", "max-age=86400");
-  server.serveStatic("/", SPIFFS, "/index.htm");
+  server->serveStatic("/index.htm", SPIFFS, "/index.htm");
+  server->serveStatic("/fonts", SPIFFS, "/fonts", "max-age=86400");
+  server->serveStatic("/js", SPIFFS, "/js");
+  server->serveStatic("/css", SPIFFS, "/css", "max-age=86400");
+  server->serveStatic("/images", SPIFFS, "/images", "max-age=86400");
+  server->serveStatic("/", SPIFFS, "/index.htm");
 
-  server.begin();
+  server->begin();
 
   Serial.println("HTTP server started");
 }
 
 typedef void (*Pattern)();
-typedef struct {
-  Pattern pattern;
-  String name;
-} PatternAndName;
+//typedef struct {
+//  Pattern pattern;
+//  String name;
+//} PatternAndName;
 typedef PatternAndName PatternAndNameList[];
 
 // List of patterns to cycle through.  Each is defined as a separate function below.
 PatternAndNameList patterns = {
+  { fire,                   "Fire" },
+  { water,                  "Water" },
   { colorwaves, "Color Waves" },
   { palettetest, "Palette Test" },
   { pride, "Pride" },
+  // twinkle patterns
+  { rainbowTwinkles,        "Rainbow Twinkles" },
+  { snowTwinkles,           "Snow Twinkles" },
+  { cloudTwinkles,          "Cloud Twinkles" },
+  { incandescentTwinkles,   "Incandescent Twinkles" },
+  // TwinkleFOX patterns
+  { retroC9Twinkles,        "Retro C9 Twinkles" },
+  { redWhiteTwinkles,       "Red & White Twinkles" },
+  { blueWhiteTwinkles,      "Blue & White Twinkles" },
+  { redGreenWhiteTwinkles,  "Red, Green & White Twinkles" },
+  { fairyLightTwinkles,     "Fairy Light Twinkles" },
+  { snow2Twinkles,          "Snow 2 Twinkles" },
+  { hollyTwinkles,          "Holly Twinkles" },
+  { iceTwinkles,            "Ice Twinkles" },
+  { partyTwinkles,          "Party Twinkles" },
+  { forestTwinkles,         "Forest Twinkles" },
+  { lavaTwinkles,           "Lava Twinkles" },
+  { fireTwinkles,           "Fire Twinkles" },
+  { cloud2Twinkles,         "Cloud 2 Twinkles" },
+  { oceanTwinkles,          "Ocean Twinkles" },
+  //Standard Patterns
   { rainbow, "Rainbow" },
   { rainbowWithGlitter, "Rainbow With Glitter" },
   { confetti, "Confetti" },
@@ -340,7 +586,7 @@ void loop(void) {
   // Add entropy to random number generator; we use a lot of it.
   random16_add_entropy(random(65535));
 
-  server.handleClient();
+  server->handleClient();
 
   if (power == 0) {
     fill_solid(leds, NUM_LEDS, CRGB::Black);
@@ -365,12 +611,7 @@ void loop(void) {
   }
 
   
-  EVERY_N_SECONDS( 600 ) {
-    if(apMode && wifi_softap_get_station_num() == 0 && AP_POWER_SAVE) {
-      WiFi.forceSleepBegin();
-      Serial.println("Modem is sleeping now");
-    }
-  }
+ 
   
   // Call the current pattern function once, updating the 'leds' array
   patterns[currentPatternIndex].pattern();
@@ -389,6 +630,7 @@ void loop(void) {
 
   // insert a delay to keep the framerate modest
   FastLED.delay(1000 / FRAMES_PER_SECOND);
+
 }
 
 
@@ -425,10 +667,13 @@ void loadSettings()
 
 void sendAll()
 {
+  
   String json = "{";
 
   json += "\"power\":" + String(power) + ",";
   json += "\"glitter\":" + String(glitter) + ",";
+  json += "\"temp\":\"" + String(temperatureString) + "\",";
+  json += "\"signname\":\"" + String(sign_name) + "\",";
   json += "\"big\":" + String(big) + ",";
   json += "\"lit\":" + String(lit) + ",";
   json += "\"numleds\":" + String(NUM_LEDS) + ",";
@@ -468,35 +713,37 @@ void sendAll()
 
   json += "}";
 
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
 
 void sendPower()
 {
   String json = String(power);
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
+
+
 
 void sendGlitter()
 {
   String json = String(glitter);
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
 
 void sendBig()
 {
   String json = String(big);
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
 
 void sendLit()
 {
   String json = String(lit);
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
 
@@ -506,7 +753,7 @@ void sendPattern()
   json += "\"index\":" + String(currentPatternIndex);
   json += ",\"name\":\"" + patterns[currentPatternIndex].name + "\"";
   json += "}";
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
 
@@ -516,14 +763,14 @@ void sendPalette()
   json += "\"index\":" + String(currentPaletteIndex);
   json += ",\"name\":\"" + paletteNames[currentPaletteIndex] + "\"";
   json += "}";
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
 
 void sendBrightness()
 {
   String json = String(brightness);
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
 
@@ -534,7 +781,7 @@ void sendSolidColor()
   json += ",\"g\":" + String(solidColor.g);
   json += ",\"b\":" + String(solidColor.b);
   json += "}";
-  server.send(200, "text/json", json);
+  server->send(200, "text/json", json);
   json = String();
 }
 
@@ -668,6 +915,15 @@ void sinelon()
   }
 }
 
+void fire()
+{
+  heatMap(HeatColors_p, true);
+}
+
+void water()
+{
+  heatMap(IceColors_p, false);
+}
 
 // Pattern made for someone named Jozef. This pattern slowly lights and fades random 
 // numbers of leds
@@ -766,6 +1022,118 @@ void pride() {
     nblend(leds[i], newcolor, 64);
   }
 }
+
+void radialPaletteShift()
+
+{
+
+  for (uint8_t i = 0; i < NUM_LEDS; i++) {
+
+    // leds[i] = ColorFromPalette( gCurrentPalette, gHue + sin8(i*16), brightness);
+
+    leds[i] = ColorFromPalette(gCurrentPalette, i + gHue, 255, LINEARBLEND);
+
+  }
+
+}
+
+
+
+// based on FastLED example Fire2012WithPalette: https://github.com/FastLED/FastLED/blob/master/examples/Fire2012WithPalette/Fire2012WithPalette.ino
+
+void heatMap(CRGBPalette16 palette, bool up)
+
+{
+
+  fill_solid(leds, NUM_LEDS, CRGB::Black);
+
+
+
+  // Add entropy to random number generator; we use a lot of it.
+
+  random16_add_entropy(random(256));
+
+
+
+  // Array of temperature readings at each simulation cell
+
+  static byte heat[256];
+
+
+
+  byte colorindex;
+
+
+
+  // Step 1.  Cool down every cell a little
+
+  for ( uint16_t i = 0; i < NUM_LEDS; i++) {
+
+    heat[i] = qsub8( heat[i],  random8(0, ((cooling * 10) / NUM_LEDS) + 2));
+
+  }
+
+
+
+  // Step 2.  Heat from each cell drifts 'up' and diffuses a little
+
+  for ( uint16_t k = NUM_LEDS - 1; k >= 2; k--) {
+
+    heat[k] = (heat[k - 1] + heat[k - 2] + heat[k - 2] ) / 3;
+
+  }
+
+
+
+  // Step 3.  Randomly ignite new 'sparks' of heat near the bottom
+
+  if ( random8() < sparking ) {
+
+    int y = random8(7);
+
+    heat[y] = qadd8( heat[y], random8(160, 255) );
+
+  }
+
+
+
+  // Step 4.  Map from heat cells to LED colors
+
+  for ( uint16_t j = 0; j < NUM_LEDS; j++) {
+
+    // Scale the heat value from 0-255 down to 0-240
+
+    // for best results with color palettes.
+
+    colorindex = scale8(heat[j], 190);
+
+
+
+    CRGB color = ColorFromPalette(palette, colorindex);
+
+
+
+    if (up) {
+
+      leds[j] = color;
+
+    }
+
+    else {
+
+      leds[(NUM_LEDS - 1) - j] = color;
+
+    }
+
+  }
+
+}
+
+
+
+
+
+
 
 // ColorWavesWithPalettes by Mark Kriegsman: https://gist.github.com/kriegsman/8281905786e8b2632aeb
 // This function draws color waves with an ever-changing,
